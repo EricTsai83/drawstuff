@@ -37,6 +37,7 @@ import {
   revokeUserSessions,
 } from "@/server/admin/investigation";
 import { unpublishScene } from "@/server/scene/unpublish";
+import { QUOTA_DEFAULTS, writeQuota, type QuotaName } from "@/server/quota";
 import { COLLAB_ROOMS_DISABLED_KEY, writeOpsFlag } from "@/server/ops/settings";
 import {
   endRoom,
@@ -644,6 +645,28 @@ export const adminRouter = createTRPCRouter({
           const outcome = await deleteSharedLink(ctx.db, input.sharedSceneId);
           if (!outcome.found) throw notFound("Shared link not found.");
           return outcome;
+        },
+      }),
+    ),
+  setQuota: adminProcedure
+    .input(
+      z.object({
+        name: z.enum(
+          Object.keys(QUOTA_DEFAULTS) as [QuotaName, ...QuotaName[]],
+        ),
+        value: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "set-quota",
+        targetType: "maintenance",
+        targetId: `quota:${input.name}`,
+        run: async () => {
+          await writeQuota(ctx.db, input.name, input.value, ctx.auth.user.id);
+          return { name: input.name, value: input.value };
         },
       }),
     ),

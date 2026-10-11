@@ -200,3 +200,23 @@ The **Controls** section (`admin.opsControls`):
   retention shows that only its creation fence remains.
 - **Users → Administrators only** (`listUsers` `operatorsOnly`) for access review, and the audit log
   filters by action and target ID (`recentAuditEvents`).
+
+## Per-account limits
+
+Hard caps checked before every write (`apps/web/src/server/quota.ts`), so storage stays inside the
+free tiers whatever the (fail-open) rate limits let through. Defaults, sized for a handful of
+accounts on Neon 0.5 GB and UploadThing 2 GB:
+
+| Limit | Default | Checked at |
+| --- | --- | --- |
+| Scenes | 500 | creating a scene (draft or first save) |
+| Scene documents | 50 MiB | every save (`pg_column_size` sum, excluding the scene being saved) |
+| Shared links | 50 MiB live | creating a shared link (links expire after 30 days) |
+| Images | 200 MiB | scene, shared-link and room image upload middleware (before bytes reach storage) |
+| Live rooms | 10 | creating a room (each holds a snapshot of up to 4 MiB) |
+
+Operators change them in **Controls → Per-account limits** (`setQuota`, audited, stored as
+`ops_setting` `quota:<name>`, 15 s cache); the user page shows each account against them. Caps are
+soft by at most one concurrent request. Accounts already above a lowered cap keep their data but
+cannot add more. Refusals return `QUOTA_EXCEEDED` (scene save, shared link), an upload middleware
+error, or `PRECONDITION_FAILED` (room create).

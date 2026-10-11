@@ -26,6 +26,7 @@ import {
   session,
   sharedScene,
 } from "@/server/db/schema";
+import { readQuotas, readQuotaUsage } from "@/server/quota";
 import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 
 const total = (expression: SQL | AnyColumn) =>
@@ -46,6 +47,8 @@ export async function readUserFootprint(db: Database, userId: string) {
     sharedLinks,
     published,
     lifecycle,
+    quotaUsage,
+    quotas,
   ] = await Promise.all([
     db
       .select({ files: count(), bytes: total(fileRecord.size) })
@@ -104,6 +107,8 @@ export async function readUserFootprint(db: Database, userId: string) {
     db.query.collaborationLifecycleSubject.findFirst({
       where: eq(collaborationLifecycleSubject.scope, `account:${userId}`),
     }),
+    readQuotaUsage(db, userId),
+    readQuotas(db),
   ]);
 
   return {
@@ -121,6 +126,7 @@ export async function readUserFootprint(db: Database, userId: string) {
     sharedLinks,
     published,
     lifecycle: lifecycle ?? null,
+    quota: { usage: quotaUsage, caps: quotas },
   };
 }
 

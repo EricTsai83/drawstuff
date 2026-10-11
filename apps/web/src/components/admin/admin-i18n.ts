@@ -302,6 +302,22 @@ const en = {
   "auditAction.unpublish-scene": "Unpublish scene",
   "auditAction.delete-shared-link": "Delete shared link",
   "targetType.shared-scene": "Shared link",
+  "controls.quotas": "Per-account limits",
+  "controls.quotasDescription":
+    "Hard caps checked before each write. Sizes in MiB. Changes reach every server within about 15 seconds.",
+  "controls.quotaDefault": "(default {value})",
+  "controls.save": "Save",
+  "controls.quotaSaved": "Limit saved.",
+  "confirm.setQuota.title": "Change this limit?",
+  "confirm.setQuota.description":
+    "{name} becomes {value} for every account. Accounts already above it keep their data but cannot add more.",
+  "quota.scenes": "Scenes",
+  "quota.sceneDocumentBytes": "Scene documents (MiB)",
+  "quota.sharedLinkBytes": "Shared links (MiB)",
+  "quota.imageBytes": "Images (MiB)",
+  "quota.activeRooms": "Live rooms",
+  "footprint.quotaTitle": "Against limits",
+  "auditAction.set-quota": "Change limit",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -595,6 +611,22 @@ const zhTW = {
   "auditAction.unpublish-scene": "取消發布場景",
   "auditAction.delete-shared-link": "刪除分享連結",
   "targetType.shared-scene": "分享連結",
+  "controls.quotas": "每個帳號的用量上限",
+  "controls.quotasDescription":
+    "每次寫入前都會檢查的硬上限；大小以 MiB 為單位。約 15 秒內套用到所有伺服器。",
+  "controls.quotaDefault": "（預設 {value}）",
+  "controls.save": "儲存",
+  "controls.quotaSaved": "已儲存上限。",
+  "confirm.setQuota.title": "變更此上限？",
+  "confirm.setQuota.description":
+    "所有帳號的「{name}」改為 {value}。已超過的帳號保留現有資料，但不能再新增。",
+  "quota.scenes": "場景數",
+  "quota.sceneDocumentBytes": "場景文件（MiB）",
+  "quota.sharedLinkBytes": "分享連結（MiB）",
+  "quota.imageBytes": "圖片（MiB）",
+  "quota.activeRooms": "進行中的房間",
+  "footprint.quotaTitle": "用量 / 上限",
+  "auditAction.set-quota": "變更上限",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -655,6 +687,7 @@ const valueTranslationKeys = {
     "revoke-sessions": "auditAction.revoke-sessions",
     "unpublish-scene": "auditAction.unpublish-scene",
     "delete-shared-link": "auditAction.delete-shared-link",
+    "set-quota": "auditAction.set-quota",
   },
   targetType: {
     account: "targetType.account",

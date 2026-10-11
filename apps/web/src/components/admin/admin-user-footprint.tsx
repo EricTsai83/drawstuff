@@ -164,6 +164,35 @@ export function AdminUserFootprint({
               ))}
             </dl>
 
+            <div>
+              <p className="mb-2 text-sm font-medium">
+                {t("footprint.quotaTitle")}
+              </p>
+              <ul className="grid gap-1 text-xs sm:grid-cols-2 lg:grid-cols-3">
+                {(
+                  Object.keys(
+                    data.quota.caps,
+                  ) as (keyof typeof data.quota.caps)[]
+                ).map((name) => {
+                  const used = data.quota.usage[name];
+                  const cap = data.quota.caps[name];
+                  const show = name.endsWith("Bytes") ? formatBytes : String;
+                  return (
+                    <li
+                      key={name}
+                      className={
+                        used >= cap
+                          ? "text-destructive"
+                          : "text-muted-foreground"
+                      }
+                    >
+                      {t(`quota.${name}`)}: {show(used)} / {show(cap)}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm">
                 {t("footprint.sessions", { count: data.sessions })}
