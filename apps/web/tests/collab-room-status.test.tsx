@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type * as AuthorityClient from "@/lib/collab/authority-client";
 import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { act, useEffect } from "react";
@@ -36,7 +37,7 @@ const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
 // Controller/status cases inject the plain authority backend. Its real proof
 // and initialization contract is exercised in collaboration-product-authority.
 vi.mock("@/lib/collab/authority-client", async (original) => ({
-  ...(await original<typeof import("@/lib/collab/authority-client")>()),
+  ...(await original<typeof AuthorityClient>()),
   createAuthorityRoomBackend: () => ({
     getRoom: roomGetQuery,
     joinRoom: joinMutate,
