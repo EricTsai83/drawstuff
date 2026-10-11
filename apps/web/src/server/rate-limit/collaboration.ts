@@ -219,6 +219,14 @@ function reportDegradation(
       cause,
     }),
   );
+  // Also counted in Neon (throttled per instance) so the admin console can
+  // show degradation without anyone reading logs. Lazy, so limiter-only
+  // modules stay free of the DB; best effort by construction.
+  void import("@/server/ops/settings")
+    .then(({ recordOpsSignal }) =>
+      recordOpsSignal(`ratelimit.degraded:${operation}`),
+    )
+    .catch(() => undefined);
 }
 
 /**

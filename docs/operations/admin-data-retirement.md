@@ -103,6 +103,12 @@ target ID to be typed before submission. The underlying audited procedures are:
 - `admin.closeRoomStorage({ roomId })` — writes the terminal storage fence an ended room never
   delivered (no-op unless `status=ended` and `storage_state≠ended`)
 - `admin.runRoomRetention()` — one routine room-retention pass with its usual caps
+- `admin.revokeSessions({ userId, confirmUserId: userId })` — signs an account out everywhere
+  without retiring it (not allowed on yourself; issued collaboration proofs live ≤ 5 min)
+- `admin.unpublishScene({ sceneId })` — takes a scene off its public page and queues both render
+  artifacts (shared with the owner's own unpublish, `server/scene/unpublish.ts`)
+- `admin.deleteSharedLink({ sharedSceneId })` — deletes a shared link before its 30-day expiry and
+  queues its images, exactly like the expiry job
 
 ## Anomalies
 
@@ -120,6 +126,21 @@ shows its total, most recent occurrence, and up to 50 oldest rows. Thresholds ar
 
 `collaboration_lifecycle_subject.frozen_at` is a nullable column added for this view: run `db:push`
 before deploying code that reads it.
+
+## Maintenance
+
+The **Maintenance** section of `/admin` (`admin.maintenanceStatus`) shows:
+
+- the collaboration Worker's `/healthz` (reachable, configuration ready, deployed version);
+- the last 10 maintenance runs from `maintenance_run` — cron, manual `POST` and admin runs are all
+  recorded with per-job outcomes (a missing weekly row means the cron did not run);
+- the cleanup queue backlog by reason (count, oldest, highest attempts) and how many rows are due.
+
+**Run maintenance now** posts to `/api/admin/maintenance` (operator session, JSON only, audited
+`run-maintenance`), which runs the same routine set as the cron under the same advisory lock and
+`maxDuration` (a concurrent run is reported as skipped). Use it after retrying failed cleanup or
+resuming a retirement so queued deletions happen without waiting for Monday. `maintenance_run` is a
+new table: run `db:push` before deploying.
 
 Account retirement rejects the currently authenticated administrator. Do not replace these calls
 with SQL deletion. After an operation, verify its `admin_audit_event` status and inspect
@@ -153,3 +174,80 @@ accidental zero-admin state during normal operation.
 - A lost sole-admin account is a break-glass database operation. Restore access only through a
   documented incident, recorded approval, verified Google identity, and a new audit record; do not
   weaken the normal bootstrap invariant to make recovery convenient.
+
+## Controls
+
+The **Controls** section (`admin.opsControls`):
+
+- **Collaboration switch** (`setCollabRoomsDisabled`, audited `disable-collaboration` /
+  `enable-collaboration`): stored in `ops_setting`, read by `collaborationRoomsDisabled()` with a
+  15 s per-instance cache, so it reaches every server within ~15 s without a redeploy. The
+  `COLLAB_ROOMS_DISABLED` env var stays the break-glass override and always wins; the console shows
+  when it is set.
+- **Signals**: counts of events that otherwise exist only in logs — today
+  `ratelimit.degraded:<operation>` (Upstash failing open). Written to `ops_signal` at most once a
+  minute per instance; *Reset counters* (audited `reset-ops-signals`) clears them.
+
+`ops_setting` and `ops_signal` are new tables: run `db:push` before deploying.
+
+## Investigation
+
+- **User page → Storage and exposure** (`admin.userFootprint`): bytes per store (scene and
+  shared-link images, room images uploaded, scene documents, shared links, Library), live sessions,
+  published scenes and shared links with their takedown actions, and the account's lifecycle state.
+- **Room lookup** (`admin.getRoom`): any room by ID — status, storage fence, epoch, snapshot and
+  image totals, people, invitations — with *End room* / *Close storage*. A room deleted by record
+  retention shows that only its creation fence remains.
+- **Users → Administrators only** (`listUsers` `operatorsOnly`) for access review, and the audit log
+  filters by action and target ID (`recentAuditEvents`).
+
+## Per-account limits
+
+Hard caps checked before every write (`apps/web/src/server/quota.ts`), so storage stays inside the
+free tiers whatever the (fail-open) rate limits let through. Defaults, sized for a handful of
+accounts on Neon 0.5 GB and UploadThing 2 GB:
+
+| Limit | Default | Checked at |
+| --- | --- | --- |
+| Scenes | 500 | creating a scene (draft or first save) |
+| Scene documents | 50 MiB | every save (`pg_column_size` sum, excluding the scene being saved) |
+| Shared links | 50 MiB live | creating a shared link (links expire after 30 days) |
+| Images | 200 MiB | scene, shared-link and room image upload middleware (before bytes reach storage) |
+| Live rooms | 10 | creating a room (each holds a snapshot of up to 4 MiB) |
+
+Operators change them in **Controls → Per-account limits** (`setQuota`, audited, stored as
+`ops_setting` `quota:<name>`, 15 s cache); the user page shows each account against them. Caps are
+soft by at most one concurrent request. Accounts already above a lowered cap keep their data but
+cannot add more. Refusals return `QUOTA_EXCEEDED` (scene save, shared link), an upload middleware
+error, or `PRECONDITION_FAILED` (room create).
+
+## Data release
+
+Principle: **every kind of data that accumulates has a place where it is released.** System garbage
+and bookkeeping are released automatically by a maintenance job; user content (accounts, scenes,
+rooms) is never released automatically, only by an operator; anything kept forever states why.
+
+The **Data release** section (`admin.dataRelease`, catalog in
+`apps/web/src/server/admin/data-release.ts`) lists each kind with its rows, its Neon size
+(`pg_total_relation_size`, rows plus indexes) and, where a column records it, the size of the
+UploadThing objects it points at (`file_record.size`, `collaboration_asset.byte_length`), the Neon database size against the 512 MiB free tier, UploadThing usage
+against its limit (`getUsageInfo`), how it is released, and the last outcome of each releasing job.
+`tests/data-release.test.ts` fails when a schema table is missing from the catalog, so a new table
+cannot ship without a decided release path. The only retained kind is
+`collaboration_creation_fence` (one tiny row per room; the sole guard against re-creating an ended
+room ID).
+
+**Storage orphans** (UploadThing objects no database row points at, e.g. a lost upload callback)
+are released by hand: *Scan storage* (`scanStorageOrphans`, read-only) previews one segment of
+10,000 objects and offers *Scan the next 10,000*; only objects uploaded over 7 days ago are
+candidates, because every reference is written by the upload callback of a fresh object. *Queue
+orphans for deletion* (`enqueueStorageOrphans`, audited) rescans the same segment and queues them
+with reason `storage-orphan`. The drain re-checks every such key against all key columns — counting
+a pending published-artifact reservation as a reference, but not the task itself or another
+deletion — and skips (marks done) any that gained one (`stillReferenced` in the drain report).
+
+**Durable Object events**: the Maintenance section counts the DO error events of the last 24 h
+from Workers Logs through the Cloudflare observability query API when `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_OBSERVABILITY_TOKEN` are set (the API requires the Workers Observability permission;
+cached 60 s per instance). The Objects get no admin route: state that needs an operator is already
+mirrored in Neon (Needs attention), and the rest is read from the logs.

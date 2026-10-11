@@ -25,9 +25,13 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
   enforceCollaborationRateLimit: () => Promise.resolve(),
   rateLimitMetadataOf: () => null,
 }));
-vi.mock("@/env", () => ({
-  env: { COLLAB_CONTROL_URL: "http://127.0.0.1:3105" },
+const { envDouble } = vi.hoisted(() => ({
+  envDouble: {
+    COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
+    COLLAB_ROOMS_DISABLED: undefined as string | undefined,
+  },
 }));
+vi.mock("@/env", () => ({ env: envDouble }));
 
 const { pgClient, testDb } = await vi.hoisted(async () => {
   const { createTestDatabase } = await import("./support/pglite-db");
@@ -266,5 +270,118 @@ describe("admin anomalies", () => {
       targetType: "maintenance",
       status: "succeeded",
     });
+  });
+
+  it("reports recent runs, the cleanup backlog, and Worker health", async () => {
+    await testDb.delete(schema.maintenanceRun);
+    await testDb.insert(schema.maintenanceRun).values({
+      trigger: "cron",
+      status: "failed",
+      failedJobs: 1,
+      startedAt: ago(HOUR_MS),
+      report: JSON.stringify({
+        failed: 1,
+        jobs: [
+          {
+            name: "drain-cleanup-queue",
+            status: "ok",
+            detail: { remaining: 3 },
+          },
+          { name: "record-retention", status: "error", error: "boom" },
+        ],
+      }),
+    });
+    await testDb.insert(schema.deferredFileCleanup).values([
+      { utFileKey: "a", reason: "delete-user", nextAttemptAt: ago(1_000) },
+      { utFileKey: "b", reason: "delete-user", nextAttemptAt: ago(-HOUR_MS) },
+      { utFileKey: "c", reason: "replace-thumbnail" },
+    ]);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          ok: true,
+          version: { id: "v-123", tag: "" },
+          ready: { roomTokenSecret: true, allowedOrigins: true },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await admin().maintenanceStatus();
+      expect(status.runs[0]).toMatchObject({
+        trigger: "cron",
+        status: "failed",
+        jobs: [
+          { name: "drain-cleanup-queue", detail: { remaining: 3 } },
+          { name: "record-retention", status: "error", error: "boom" },
+        ],
+      });
+      expect(status.backlog).toMatchObject({ pending: 3, due: 2 });
+      expect(status.backlog.byReason[0]).toMatchObject({
+        reason: "delete-user",
+        count: 2,
+      });
+      expect(status.health).toMatchObject({ reachable: true, ok: true });
+
+      fetchMock.mockImplementation(() =>
+        Promise.reject(new TypeError("fetch failed")),
+      );
+      expect((await admin().maintenanceStatus()).health).toEqual({
+        reachable: false,
+        error: "TypeError",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("turns collaboration off and on at runtime, under the env override", async () => {
+    const { collaborationRoomsDisabled } =
+      await import("@/server/collab/relay-routing");
+    await testDb.delete(schema.opsSetting);
+    expect(await collaborationRoomsDisabled()).toBe(false);
+
+    await expect(
+      admin().setCollabRoomsDisabled({ disabled: true }),
+    ).resolves.toEqual({ disabled: true });
+    expect(await collaborationRoomsDisabled()).toBe(true);
+    expect((await admin().opsControls()).collabRoomsDisabled).toMatchObject({
+      on: true,
+      envOverride: false,
+      updatedBy: "admin-user",
+    });
+
+    await admin().setCollabRoomsDisabled({ disabled: false });
+    expect(await collaborationRoomsDisabled()).toBe(false);
+
+    // The env break-glass wins over the runtime switch.
+    envDouble.COLLAB_ROOMS_DISABLED = "1";
+    try {
+      expect(await collaborationRoomsDisabled()).toBe(true);
+      expect(
+        (await admin().opsControls()).collabRoomsDisabled.envOverride,
+      ).toBe(true);
+    } finally {
+      envDouble.COLLAB_ROOMS_DISABLED = undefined;
+    }
+    const actions = (await testDb.select().from(schema.adminAuditEvent)).map(
+      (event) => event.action,
+    );
+    expect(actions).toEqual(
+      expect.arrayContaining(["disable-collaboration", "enable-collaboration"]),
+    );
+  });
+
+  it("counts log-only signals with a per-instance throttle and resets them", async () => {
+    const { recordOpsSignal } = await import("@/server/ops/settings");
+    await testDb.delete(schema.opsSignal);
+    await recordOpsSignal("ratelimit.degraded:join");
+    // Within the throttle window: counted locally, not written.
+    await recordOpsSignal("ratelimit.degraded:join");
+    const [first] = (await admin().opsControls()).signals;
+    expect(first).toMatchObject({ name: "ratelimit.degraded:join", count: 1 });
+
+    await expect(admin().resetOpsSignals()).resolves.toEqual({ reset: 1 });
+    expect((await admin().opsControls()).signals).toEqual([]);
   });
 });

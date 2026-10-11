@@ -27,7 +27,8 @@ export async function requestAssetAuthority(
   request: AssetRequest,
   timings?: PerformanceTimings,
 ) {
-  if (collaborationRoomsDisabled()) throw collaborationRoomsDisabledError();
+  if (await collaborationRoomsDisabled())
+    throw collaborationRoomsDisabledError();
   if (!env.COLLAB_IDENTITY_SECRET || !env.COLLAB_AUTHORITY_SECRET)
     throw new TRPCError({ code: "SERVICE_UNAVAILABLE" });
   const roomId =
