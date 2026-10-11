@@ -12,6 +12,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 
+import { AdminFailedCleanups } from "@/components/admin/admin-failed-cleanups";
 import {
   AdminStatusBadge,
   formatAdminDate,
@@ -153,6 +154,8 @@ export function AdminConsole({
             ))}
           </div>
         </section>
+
+        <AdminFailedCleanups />
 
         <section aria-labelledby="users-heading">
           <Card>

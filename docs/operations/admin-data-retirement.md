@@ -96,6 +96,8 @@ target ID to be typed before submission. The underlying audited procedures are:
 - `admin.retireAccount({ userId, confirmUserId: userId })`
 - `admin.grantOperator({ userId, confirmUserId: userId })`
 - `admin.revokeOperator({ userId, confirmUserId: userId })`
+- `admin.retryFailedCleanup({ target: taskId | "all" })` — requeues `failed`
+  `deferred_file_cleanup` rows for the next maintenance drain
 
 Account retirement rejects the currently authenticated administrator. Do not replace these calls
 with SQL deletion. After an operation, verify its `admin_audit_event` status and inspect

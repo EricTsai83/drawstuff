@@ -578,6 +578,23 @@ describe("bounded queue drain", () => {
     });
   });
 
+  it("retries a failed deletion an hour later, never within the same drain", async () => {
+    await testDb
+      .insert(schema.deferredFileCleanup)
+      .values({ utFileKey: "key-x", reason: "t" });
+
+    const { deps } = makeDeps({ failKeys: () => new Set(["key-x"]) });
+    const before = Date.now();
+    const detail = await createQueueDrainJob().run(deps);
+
+    expect(detail).toMatchObject({ processed: 0, rescheduled: 1, failed: 0 });
+    const [task] = await testDb.select().from(schema.deferredFileCleanup);
+    expect(task).toMatchObject({ status: "pending", attempts: 1 });
+    expect(task?.nextAttemptAt.getTime()).toBeGreaterThanOrEqual(
+      before + 60 * 60_000,
+    );
+  });
+
   it("marks a task failed after its attempts are exhausted", async () => {
     await testDb
       .insert(schema.deferredFileCleanup)
@@ -588,11 +605,23 @@ describe("bounded queue drain", () => {
       .where(eq(schema.deferredFileCleanup.utFileKey, "key-x"));
 
     const { deps } = makeDeps({ failKeys: () => new Set(["key-x"]) });
+    const errorLog = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const detail = await createQueueDrainJob().run(deps);
 
     expect(detail).toMatchObject({ processed: 0, failed: 1, remaining: 0 });
     const [task] = await testDb.select().from(schema.deferredFileCleanup);
     expect(task?.status).toBe("failed");
+    expect(errorLog).toHaveBeenCalledWith(
+      JSON.stringify({
+        event: "cleanup.deferred_failed",
+        key: "key-x",
+        reason: "t",
+        lastError: "Error: storage refused key-x",
+      }),
+    );
+    errorLog.mockRestore();
   });
 });
 

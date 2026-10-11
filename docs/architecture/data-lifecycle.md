@@ -113,7 +113,13 @@ document and asset records never leave the owner's endpoints.
 PostgreSQL and object storage cannot share one transaction. Any operation that makes an object
 orphaned therefore deletes the owning row and inserts its `ut_file_key` into
 `deferred_file_cleanup` in the same database transaction. The queue is the durable outbox; object
-deletion is retried independently and queue rows retain failure state.
+deletion is retried independently and queue rows retain failure state. The drain runs in the weekly
+maintenance cron: a failed deletion is retried after a fixed 1 h — so never twice in one drain, and
+in practice on the next weekly run — and after 5 retries (about five weeks) the row becomes
+`failed` and logs `cleanup.deferred_failed` (`error`, web server logs). The drain never picks up
+`failed` rows again; operators review them in the admin console's **Failed file cleanup** section,
+where retrying one or all (audited `retry-cleanup`) resets them to `pending` with zero attempts for
+the next run.
 
 The same transactional-outbox shape covers realtime enforcement: every collaboration room mutation
 inserts its control intent into `collaboration_control_outbox` in the mutation's own transaction,

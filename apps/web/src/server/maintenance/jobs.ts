@@ -790,6 +790,14 @@ export function createQueueDrainJob(
             const attempts = task.attempts ?? 0;
             if (attempts >= 5) {
               await QUERIES.markDeferredCleanupFailed(task.id, String(error));
+              console.error(
+                JSON.stringify({
+                  event: "cleanup.deferred_failed",
+                  key: task.utFileKey,
+                  reason: task.reason,
+                  lastError: String(error),
+                }),
+              );
               failed += 1;
             } else {
               await QUERIES.rescheduleDeferredCleanup(

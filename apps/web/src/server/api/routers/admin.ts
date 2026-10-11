@@ -6,6 +6,7 @@ import {
   beginAdminAudit,
   completeAdminAudit,
   type AdminAuditAction,
+  type AdminAuditTargetType,
 } from "@/server/admin/audit";
 import {
   getActiveOperatorGrant,
@@ -32,7 +33,7 @@ async function audited<T>(params: {
   db: Database;
   actorUserId: string;
   action: AdminAuditAction;
-  targetType: "scene" | "room" | "account";
+  targetType: AdminAuditTargetType;
   targetId: string;
   run: () => Promise<T>;
 }): Promise<T> {
@@ -232,6 +233,27 @@ export const adminRouter = createTRPCRouter({
 
       return { user: target, scenes: targetScenes, rooms: targetRooms, grant };
     }),
+  failedCleanups: adminProcedure.query(async ({ ctx }) => {
+    const failed = eq(deferredFileCleanup.status, "failed");
+    const [total, items] = await Promise.all([
+      ctx.db.select({ value: count() }).from(deferredFileCleanup).where(failed),
+      ctx.db
+        .select({
+          id: deferredFileCleanup.id,
+          utFileKey: deferredFileCleanup.utFileKey,
+          reason: deferredFileCleanup.reason,
+          context: deferredFileCleanup.context,
+          attempts: deferredFileCleanup.attempts,
+          lastError: deferredFileCleanup.lastError,
+          updatedAt: deferredFileCleanup.updatedAt,
+        })
+        .from(deferredFileCleanup)
+        .where(failed)
+        .orderBy(desc(deferredFileCleanup.updatedAt))
+        .limit(50),
+    ]);
+    return { count: total[0]?.value ?? 0, items };
+  }),
   recentAuditEvents: adminProcedure
     .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }))
     .query(({ ctx, input }) =>
@@ -371,4 +393,40 @@ export const adminRouter = createTRPCRouter({
       });
       return result;
     }),
+  // 改回 pending、attempts 歸零，由下一次維護 drain 重新處理；不在這裡直接刪
+  // UploadThing，避免與 drain 同時處理同一筆。
+  retryFailedCleanup: adminProcedure
+    .input(z.object({ target: z.union([z.uuid(), z.literal("all")]) }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "retry-cleanup",
+        targetType: "cleanup",
+        targetId: input.target,
+        run: async () => {
+          const now = new Date();
+          const rows = await ctx.db
+            .update(deferredFileCleanup)
+            .set({
+              status: "pending",
+              attempts: 0,
+              nextAttemptAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(deferredFileCleanup.status, "failed"),
+                input.target === "all"
+                  ? undefined
+                  : eq(deferredFileCleanup.id, input.target),
+              ),
+            )
+            .returning({ id: deferredFileCleanup.id });
+          if (input.target !== "all" && rows.length === 0)
+            throw notFound("Failed cleanup task not found.");
+          return { retried: rows.length };
+        },
+      }),
+    ),
 });

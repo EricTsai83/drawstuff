@@ -120,6 +120,27 @@ const en = {
   "targetType.account": "Account",
   "targetType.scene": "Scene",
   "targetType.room": "Room",
+  "failedCleanup.title": "Failed file cleanup",
+  "failedCleanup.description":
+    "Storage objects whose deletion exhausted its retries. Retrying returns them to the queue for the next maintenance run.",
+  "failedCleanup.loading": "Loading failed cleanup tasks",
+  "failedCleanup.empty": "No failed cleanup tasks.",
+  "failedCleanup.retryAll": "Retry all",
+  "failedCleanup.retryLabel": "Retry cleanup of {key}",
+  "table.fileKey": "File key",
+  "table.reason": "Reason",
+  "table.attempts": "Attempts",
+  "table.lastError": "Last error",
+  "table.failedAt": "Failed",
+  "confirm.retryCleanup.title": "Retry this file cleanup?",
+  "confirm.retryCleanupAll.title": "Retry every failed file cleanup?",
+  "confirm.retryCleanup.description":
+    "The task returns to the queue with its attempts reset and is processed on the next maintenance run.",
+  "confirm.retryCleanup.action": "Retry",
+  "toast.cleanupRetried":
+    "{count} cleanup task(s) queued for the next maintenance run.",
+  "auditAction.retry-cleanup": "Retry file cleanup",
+  "targetType.cleanup": "Cleanup task",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -234,6 +255,26 @@ const zhTW = {
   "targetType.account": "帳號",
   "targetType.scene": "場景",
   "targetType.room": "房間",
+  "failedCleanup.title": "檔案清理失敗",
+  "failedCleanup.description":
+    "重試次數已用完、仍未刪除的儲存物件。重試會放回佇列，由下一次維護執行處理。",
+  "failedCleanup.loading": "載入清理失敗項目",
+  "failedCleanup.empty": "沒有清理失敗的項目。",
+  "failedCleanup.retryAll": "全部重試",
+  "failedCleanup.retryLabel": "重試清理 {key}",
+  "table.fileKey": "檔案 key",
+  "table.reason": "原因",
+  "table.attempts": "嘗試次數",
+  "table.lastError": "最後錯誤",
+  "table.failedAt": "失敗時間",
+  "confirm.retryCleanup.title": "重試這筆檔案清理？",
+  "confirm.retryCleanupAll.title": "重試全部失敗的檔案清理？",
+  "confirm.retryCleanup.description":
+    "任務會放回佇列並重設嘗試次數，由下一次維護執行處理。",
+  "confirm.retryCleanup.action": "重試",
+  "toast.cleanupRetried": "已將 {count} 筆清理任務排入下一次維護執行。",
+  "auditAction.retry-cleanup": "重試檔案清理",
+  "targetType.cleanup": "清理任務",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -277,11 +318,13 @@ const valueTranslationKeys = {
     "retire-scene": "auditAction.retire-scene",
     "end-room": "auditAction.end-room",
     "retire-account": "auditAction.retire-account",
+    "retry-cleanup": "auditAction.retry-cleanup",
   },
   targetType: {
     account: "targetType.account",
     scene: "targetType.scene",
     room: "targetType.room",
+    cleanup: "targetType.cleanup",
   },
 } as const satisfies Record<string, Record<string, AdminTranslationKey>>;
 

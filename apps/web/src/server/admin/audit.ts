@@ -10,13 +10,16 @@ export type AdminAuditAction =
   | "revoke-admin"
   | "retire-scene"
   | "end-room"
-  | "retire-account";
+  | "retire-account"
+  | "retry-cleanup";
+
+export type AdminAuditTargetType = "scene" | "room" | "account" | "cleanup";
 
 export async function beginAdminAudit(params: {
   db: Database;
   actorUserId: string | null;
   action: AdminAuditAction;
-  targetType: "scene" | "room" | "account";
+  targetType: AdminAuditTargetType;
   targetId: string;
 }): Promise<string> {
   const [event] = await params.db

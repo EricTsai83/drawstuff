@@ -39,6 +39,8 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 
 ### 1.4 檔案清理失敗的退避與重試
 
+> 已實作（plan 22 第 1 個 PR）；現況見 [data lifecycle](../docs/architecture/data-lifecycle.md#deferred-object-cleanup)。1.1 的「檔案清理失敗」項目沿用該區塊。
+
 - **現況**：drain 只撈 `status=pending`，`failed` 列之後永遠不再處理，物件留在 UploadThing；目前 admin 的 Pending cleanup 也不計入 `failed`。失敗資料都保留在列上（`lastError`、`attempts`、`reason`、`context`、`updatedAt`），但單筆失敗不寫 log，只能直接查 DB。
 - **退避太短**：`rescheduleDeferredCleanup` 為 1s 起跳指數退避、上限 60s，5 次重試約 31 秒就用完，而單次 drain 預算 60 秒，同一輪內會反覆撈到同一筆。UploadThing 短暫故障半分鐘就可能把一批檔案永久標成 `failed`。維護 cron 每週一次（`apps/web/vercel.json`，週一 03:30），任何超過約 1 分鐘的間隔都會落到下一次執行，指數退避沒有意義：改為固定 1 小時（保證同一輪 drain 不重複撈同一筆），維持 5 次上限，約 5 週後才轉 `failed`。
 - **轉為 `failed` 時**記 `error` 等級的 `cleanup.deferred_failed` log（key、reason、lastError）。drain 跑在 web 維護排程，不在 Workers，所以這筆 log 會在 web 伺服器的 log 裡。
