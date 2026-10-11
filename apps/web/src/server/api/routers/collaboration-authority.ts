@@ -17,6 +17,7 @@ import {
 } from "@/server/collab/relay-routing";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 import { collaborationRoom, scene } from "@/server/db/schema";
+import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 
 async function configured() {
   if (await collaborationRoomsDisabled())
@@ -95,6 +96,17 @@ export const collaborationAuthorityRouter = createTRPCRouter({
     .input(authorityRequestSchema)
     .mutation(async ({ ctx, input }) => {
       const config = await configured();
+      if (input.action === "create") {
+        try {
+          await assertWithinQuota(ctx.db, ctx.auth.user.id, "activeRooms", 1);
+        } catch (error) {
+          if (!(error instanceof QuotaExceededError)) throw error;
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Live room limit reached. End a room to create another.",
+          });
+        }
+      }
       await enforceCollaborationRateLimit({
         operation: "join",
         identifier: ctx.auth.user.id,

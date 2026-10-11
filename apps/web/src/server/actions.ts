@@ -1,5 +1,6 @@
 "use server";
 
+import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 import { db } from "@/server/db";
 import { fileRecord, scene, sharedScene } from "@/server/db/schema";
 import { nanoid } from "nanoid";
@@ -70,6 +71,22 @@ export async function handleSceneSave(
       sharedSceneId: null,
       errorMessage: "Too many share links created. Please retry shortly",
       errorCode: APP_ERROR.RATE_LIMITED,
+    };
+  }
+
+  try {
+    await assertWithinQuota(
+      db,
+      session.user.id,
+      "sharedLinkBytes",
+      compressedSceneData.byteLength,
+    );
+  } catch (error) {
+    if (!(error instanceof QuotaExceededError)) throw error;
+    return {
+      sharedSceneId: null,
+      errorMessage: error.message,
+      errorCode: APP_ERROR.QUOTA_EXCEEDED,
     };
   }
 
@@ -238,6 +255,12 @@ export async function createSceneDraftAction(
         error: APP_ERROR.VALIDATION_FAILED,
         message: draftResult.message,
       };
+    case "quota_exceeded":
+      return {
+        ok: false,
+        error: APP_ERROR.QUOTA_EXCEEDED,
+        message: draftResult.message,
+      };
   }
 }
 
@@ -313,6 +336,12 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       return {
         ok: false,
         error: APP_ERROR.VALIDATION_FAILED,
+        message: saveResult.message,
+      };
+    case "quota_exceeded":
+      return {
+        ok: false,
+        error: APP_ERROR.QUOTA_EXCEEDED,
         message: saveResult.message,
       };
     default:

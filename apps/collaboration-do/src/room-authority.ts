@@ -56,6 +56,9 @@ type InvitationRow = {
 };
 type Access = { role: RoomRole; access: RoomAccess };
 
+/** Opener records kept per room (owner + up to 200 invited + recent link openers). */
+const MAX_MEMBER_RECORDS = 256;
+
 const ROLE_RANK: Record<RoomRole, number> = { viewer: 0, editor: 1, owner: 2 };
 const higherRole = (a: RoomRole, b: RoomRole | undefined): RoomRole =>
   b !== undefined && ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
@@ -322,7 +325,8 @@ export class RoomAuthority {
             if (command.registrationVersion !== command.actor.lifecycleVersion)
               throw new Error("stale-proof");
             // Records who opened the room and when; never a role (§3).
-            this.recordMember(command.actor, Date.now());
+            const evicted = this.recordMember(command.actor, Date.now());
+            if (evicted) subjects.add(evicted);
           } else if (command.action === "leave") {
             if (
               room.owner === command.actor.subject ||
@@ -556,13 +560,47 @@ export class RoomAuthority {
     );
   }
 
+  /**
+   * Records an opener; returns the subject evicted to make room, if any.
+   *
+   * Opener records are capped at `MAX_MEMBER_RECORDS` so a link-shared room
+   * cannot grow its list without bound: every room-wide change (ending it,
+   * changing general access) sends one list projection — one web adapter call
+   * and one Neon write — per record. When full, the least recently opened
+   * link-only record goes: its access still comes from the link, only its
+   * "opened via link" list row disappears. The owner and invited people are
+   * never evicted (invitations are capped at 200, below the record cap).
+   */
   private recordMember(
     identity: TrustedIdentity,
     joinedAt: number | null,
-  ): void {
+  ): string | undefined {
     const old = this.member(identity.subject);
     if (old && identity.lifecycleVersion < old.lifecycle_version)
       throw new Error("stale-proof");
+    let evicted: string | undefined;
+    if (
+      !old &&
+      this.storage.sql
+        .exec<{
+          count: number;
+        }>("SELECT count(*) AS count FROM authority_members")
+        .one().count >= MAX_MEMBER_RECORDS
+    ) {
+      evicted = this.storage.sql
+        .exec<{ subject: string }>(
+          `SELECT subject FROM authority_members
+           WHERE subject != (SELECT owner FROM authority_room)
+             AND email_key NOT IN (SELECT email_key FROM authority_allowlist)
+           ORDER BY coalesce(last_joined_at, 0), subject LIMIT 1`,
+        )
+        .toArray()[0]?.subject;
+      if (evicted)
+        this.storage.sql.exec(
+          "DELETE FROM authority_members WHERE subject=?",
+          evicted,
+        );
+    }
     this.storage.sql.exec(
       "INSERT INTO authority_members(subject,email_key,lifecycle_version,last_joined_at) VALUES (?,?,?,?) ON CONFLICT(subject) DO UPDATE SET email_key=excluded.email_key,lifecycle_version=excluded.lifecycle_version,last_joined_at=coalesce(excluded.last_joined_at,last_joined_at)",
       identity.subject,
@@ -570,6 +608,7 @@ export class RoomAuthority {
       identity.lifecycleVersion,
       joinedAt,
     );
+    return evicted;
   }
 
   /**
