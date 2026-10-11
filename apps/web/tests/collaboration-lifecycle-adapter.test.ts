@@ -10,6 +10,10 @@ import {
   retirementIntent,
 } from "@/server/collab/authority-lifecycle";
 import { registerAuthorityCommand } from "@/server/collab/authority-registration";
+import {
+  InviteeRetiringError,
+  registerInvitation,
+} from "@/server/collab/invite-registration";
 import { retireAccount, retireScene } from "@/server/admin/retirement";
 import * as schema from "@/server/db/schema";
 import { openTestDatabase } from "./support/pglite-db";
@@ -241,6 +245,46 @@ describe("Lifecycle storage barriers", () => {
     expect(new Set(rooms.map((room) => room.action))).toEqual(
       new Set(["revoke-member"]),
     );
+  });
+  it("finds an invitation registered before the freeze even if its projection never arrived", async () => {
+    await db.insert(schema.collaborationRoom).values({
+      roomId: "room-just-invited",
+      ownerId: "owner",
+      status: "ready",
+    });
+    // Invited moments before retirement: registered, no invite row in Neon.
+    await registerInvitation(database, {
+      roomId: "room-just-invited",
+      email: "guest@example.com",
+      operationId: crypto.randomUUID(),
+    });
+    const target = { kind: "account" as const, subject: "guest" };
+    const command = await retirementIntent(database, target, "admin");
+    await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command,
+    });
+    const page = lifecyclePageSchema.parse(
+      await applyLifecycleAdapter(database, {
+        v: 1,
+        action: "lifecycle-list",
+        command,
+        version: 2,
+      }),
+    );
+    expect(page.rooms).toEqual([
+      { roomId: "room-just-invited", action: "revoke-member" },
+    ]);
+
+    // Once frozen, a new invitation to the address is refused.
+    await expect(
+      registerInvitation(database, {
+        roomId: "room-just-invited",
+        email: "guest@example.com",
+        operationId: crypto.randomUUID(),
+      }),
+    ).rejects.toBeInstanceOf(InviteeRetiringError);
   });
   it("requires the same freeze version and atomically retains personal asset cleanup keys with a scene cascade", async () => {
     const source = await sceneFixture();
