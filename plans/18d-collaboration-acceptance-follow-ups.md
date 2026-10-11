@@ -22,7 +22,7 @@
 
 原 runner 任一 socket close 即中止整輪，已有四輪在第 27–157 筆被單次斷線作廢延遲樣本。改為記錄失敗樣本（階段、close code、時間）後重連繼續，直到收滿 200 筆成功樣本：延遲分位數只用成功樣本，`gatePassed` 另要求失敗率 ≤ 0.5%。失敗率計入 client 端觀察到的 1006 等所有功能失敗，比 SLO §6 只計 server close codes 嚴格。重連後第一筆照常計入並標記，不得事後排除。
 
-- [ ] 依上述契約修改 `remote-performance-acceptance.mjs` 與報告欄位，更新 [P0 測量契約](../docs/performance/collaboration-storage-p0.md)；舊報告不改寫。
+- [x] 依上述契約修改 `remote-performance-acceptance.mjs` 與報告欄位，更新 [P0 測量契約](../docs/performance/collaboration-storage-p0.md)；舊報告不改寫。累計 10 筆失敗即停止以控制額度。
 
 ### 1c. 部署後取得分類證據
 

@@ -27,13 +27,13 @@ pnpm check
 下列是首版部署驗收門檻，不代表本機 fixture 能證明跨雲效能。
 即時 fanout 沿用 [既有 SLO](collaboration-slo-capacity.md)。
 
-| 操作                                   | p95  | p99   | 完成點                                          |
-| -------------------------------------- | ---- | ----- | ----------------------------------------------- |
-| 加入                                   | 3 秒 | 5 秒  | 驗權、載入基線、可共編；不能只計 socket upgrade |
-| 典型畫布保存（256 KiB 快照）           | 3 秒 | 8 秒  | 快照及所有引用附件 finalize 確認                |
-| 慢附件（注入 5 秒）                    | 8 秒 | 15 秒 | 所有引用 finalize 後才可保存成功                |
-| 最大合法畫布保存                       | 8 秒 | 15 秒 | 同上；排除超限拒絕樣本並另計拒絕率              |
-| 撤權（DB 可用）                        | 3 秒 | 5 秒  | 本地收發拒絕與 adapter fence 確認               |
+| 操作                         | p95  | p99   | 完成點                                          |
+| ---------------------------- | ---- | ----- | ----------------------------------------------- |
+| 加入                         | 3 秒 | 5 秒  | 驗權、載入基線、可共編；不能只計 socket upgrade |
+| 典型畫布保存（256 KiB 快照） | 3 秒 | 8 秒  | 快照及所有引用附件 finalize 確認                |
+| 慢附件（注入 5 秒）          | 8 秒 | 15 秒 | 所有引用 finalize 後才可保存成功                |
+| 最大合法畫布保存             | 8 秒 | 15 秒 | 同上；排除超限拒絕樣本並另計拒絕率              |
+| 撤權（DB 可用）              | 3 秒 | 5 秒  | 本地收發拒絕與 adapter fence 確認               |
 
 每場景至少 200 個完成樣本，先跑 20 個 warmup；分開冷／熱、典型／最大、保存與撤權並行、
 慢附件、DB 故障恢復。冷場景包括 DO eviction；部署時另記 Vercel／Neon 冷啟動，不混進熱樣本。
@@ -54,6 +54,16 @@ public storage URL 或 payload。`cf:loadtest` 的 WebSocket 數字不能代替�
 - DB 故障使用 host adapter 的不可用開關回傳 503，持續至少 30 秒。所有房間在故障期間回傳 pending，恢復後從 eviction／alarm 查詢與取消無 payload 的保存。恢復延遲由 adapter 可用時計算，不套用正常撤權 SLO。
 - Provider 內容存於測試 host 的 PostgreSQL 表，service binding 代替 DO→Vercel。此結果證明本機原型可行，不證明 UploadThing 生產效能、跨雲 hop、body 平台上限或免費額度尖峰容量。
 - 報告含基底 commit、uncommitted prototype 標記、runtime、bytes、樣本數、p50/p95/p99 與失敗／pending 比例；不含帳號、proof、邀請連結、物件 URL 或 payload。每筆樣本完成後清理 fixture 的內容並 evict，維持設定的活動 room 數量。
+
+## 正式環境 runner 的失敗處理（2026-10-11 起，報告 `schemaVersion: 2`）
+
+`pnpm collab:assets:remote` 的 3A 量測（`apps/web/scripts/remote-performance-acceptance.mjs`）不再因單筆失敗中止整輪：
+
+- 失敗樣本記入 `failureRecords`（階段、HTTP status、callback 狀態、socket state／close code、時間、封閉列舉的 `errorName`、Zod issue code），不記 error message 或 response body；接著視需要重連 owner、重新讀取目前 revision，繼續直到收滿 200 筆成功正式樣本。
+- 失敗後第一筆成功樣本照常計入並標記 `afterFailure`，不得事後排除。
+- 延遲分位數只用成功樣本。`gatePassed` 另要求正式失敗率（`failures／formalAttempts`）≤ 0.5%；失敗率計入 client 端觀察到的 1006 等所有功能失敗，比 SLO §6 只計 server close codes 嚴格。warmup 失敗另計，不進比率。
+- warmup＋正式累計 10 筆失敗即停止（`completed: false`），避免在已無法通過時繼續消耗額度。中斷與恢復失敗仍會結束整輪。
+- 判定邏輯在 `scripts/remote-performance-gate.mjs`，由 `tests/remote-performance-gate.test.ts` 鎖定。`schemaVersion: 1` 的舊報告不改寫，也不與新報告合併。
 
 ## 驗證紀錄
 

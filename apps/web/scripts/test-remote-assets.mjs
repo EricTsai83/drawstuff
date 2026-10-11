@@ -176,8 +176,9 @@ async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
   const closed = new Promise((resolve) => ws.once("close", (code) => { closeCode = code; resolve(code); }));
   let joined;
   await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("Join timeout")), 15000);
-    const done = (error) => { clearTimeout(timer); ws.off("message", message); ws.off("error", failed); ws.off("close", failed); error ? reject(error) : resolve(); };
+    const timer = setTimeout(() => done(new Error("Join timeout")), 15000);
+    // A failed join is terminated so it cannot join late into later work; the close code it ends with rides on the error.
+    const done = (error) => { clearTimeout(timer); ws.off("message", message); ws.off("error", failed); ws.off("close", failed); if (error) { ws.terminate(); void closed.then((code) => reject(Object.assign(error, { closeCode: code }))); } else resolve(); };
     const failed = () => done(new Error("Socket refused"));
     const message = (data, binary) => { if (!binary) { const notice = JSON.parse(data.toString()); if (notice.control === "joined") { joined = notice; done(); } } };
     ws.on("message", message); ws.once("error", failed); ws.once("close", failed);
