@@ -194,10 +194,10 @@ export function AdminDataRelease() {
                             "—"
                           )}
                         </TableCell>
-                        <TableCell className="max-w-80">
+                        <TableCell className="max-w-96 min-w-64 whitespace-normal">
                           {releaseCell(entry)}
                         </TableCell>
-                        <TableCell className="text-xs">
+                        <TableCell className="text-xs whitespace-normal">
                           {entry.jobs.map((job) => (
                             <p
                               key={job.name}
