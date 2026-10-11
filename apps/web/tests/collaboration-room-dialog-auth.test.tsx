@@ -654,6 +654,23 @@ describe("share room dialog", () => {
     expect(container!.textContent).not.toMatch(/\bkey\b|complete link/i);
   });
 
+  it("never sends one room's member page cursor for another room", () => {
+    roomGetUseQuery.mockReturnValue(managed({ nextCursor: "page-2" }));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    act(() => button("Next page").click());
+    expect(roomGetUseQuery).toHaveBeenLastCalledWith(
+      expect.objectContaining({ roomId: "room-a", cursor: "page-2" }),
+      expect.anything(),
+    );
+
+    roomGetUseQuery.mockClear();
+    renderDialog({ isAuthenticated: true, roomId: "room-b" });
+    for (const [input] of roomGetUseQuery.mock.calls) {
+      expect(input).toMatchObject({ roomId: "room-b", cursor: undefined });
+    }
+    expect(roomGetUseQuery).toHaveBeenCalled();
+  });
+
   it("changes general access with set-link-role", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
