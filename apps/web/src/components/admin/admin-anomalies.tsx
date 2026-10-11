@@ -311,15 +311,15 @@ export function AdminAnomalies() {
                 count={data.failedCleanup.count}
                 lastAt={data.failedCleanup.lastAt}
                 action={
-                  <a
-                    href="#failed-cleanup-heading"
+                  <Link
+                    href="/admin/data#failed-cleanup-heading"
                     className={buttonVariants({
                       variant: "outline",
                       size: "sm",
                     })}
                   >
                     {t("anomalies.viewDetails")}
-                  </a>
+                  </Link>
                 }
               />
 
