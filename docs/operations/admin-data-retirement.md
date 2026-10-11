@@ -270,4 +270,5 @@ dashboard (Durable Object events such as `alarm.given_up`, `authority.work_aband
 web app's Vercel logs (e.g. `cleanup.deferred_failed`); the URLs live in
 `apps/web/src/config/ops-links.ts`. The console holds no log-reading credential and the Objects get
 no admin route: state that needs an operator is mirrored into Neon (Needs attention), raw logs are
-read in each platform's own dashboard, and push alerting is plan 17's job.
+read in each platform's own dashboard, and there is no push alerting (deferred; see the
+[observability contract](../observability/collaboration-do-observability.md)).
