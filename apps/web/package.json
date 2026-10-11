@@ -17,6 +17,7 @@
     "preview": "node scripts/sync-excalidraw-assets.mjs && next build && next start",
     "start": "next start",
     "test": "vitest run",
+    "test:changed": "vitest run --changed main",
     "test:adapters": "node scripts/test-collaboration-adapters.mjs",
     "test:browser:remote": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/remote-browser-acceptance.mjs",
     "test:assets:remote": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/test-remote-assets.mjs",
