@@ -187,6 +187,33 @@ const en = {
   "auditAction.close-room-storage": "Close room storage",
   "auditAction.run-room-retention": "Run room reclaim",
   "targetType.maintenance": "Maintenance",
+  "maintenance.title": "Maintenance",
+  "maintenance.description":
+    "The weekly maintenance run, the file cleanup queue, and the collaboration Worker.",
+  "maintenance.loading": "Loading maintenance status",
+  "maintenance.runNow": "Run maintenance now",
+  "maintenance.ran": "Maintenance finished.",
+  "maintenance.ranWithFailures":
+    "Maintenance finished with failed jobs; see the last run.",
+  "maintenance.skipped": "Another maintenance run is already in progress.",
+  "maintenance.workerHealth": "Collaboration Worker",
+  "maintenance.healthy": "Healthy",
+  "maintenance.misconfigured": "Misconfigured",
+  "maintenance.unreachable": "Unreachable ({error})",
+  "maintenance.lastRun": "Last run",
+  "maintenance.neverRan": "No maintenance run has been recorded yet.",
+  "maintenance.history": "Earlier:",
+  "maintenance.queue": "Cleanup queue: {pending} pending, {due} due now",
+  "maintenance.count": "Count",
+  "maintenance.oldest": "Oldest",
+  "confirm.runMaintenance.title": "Run maintenance now?",
+  "confirm.runMaintenance.description":
+    "Runs the full routine set the weekly cron runs, including deleting queued storage objects. It can take up to five minutes.",
+  "auditAction.run-maintenance": "Run maintenance",
+  "status.skipped": "Skipped",
+  "trigger.cron": "Weekly cron",
+  "trigger.manual": "Manual request",
+  "trigger.admin": "Admin console",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -367,6 +394,33 @@ const zhTW = {
   "auditAction.close-room-storage": "關閉房間 storage",
   "auditAction.run-room-retention": "執行房間回收",
   "targetType.maintenance": "維護",
+  "maintenance.title": "維護",
+  "maintenance.description":
+    "每週維護的執行結果、檔案清理佇列與共編 Worker 狀態。",
+  "maintenance.loading": "載入維護狀態",
+  "maintenance.runNow": "立即執行維護",
+  "maintenance.ran": "維護已完成。",
+  "maintenance.ranWithFailures":
+    "維護已完成，但有 job 失敗；請查看最近一次執行。",
+  "maintenance.skipped": "已有另一個維護正在執行。",
+  "maintenance.workerHealth": "共編 Worker",
+  "maintenance.healthy": "正常",
+  "maintenance.misconfigured": "設定錯誤",
+  "maintenance.unreachable": "無法連線（{error}）",
+  "maintenance.lastRun": "最近一次執行",
+  "maintenance.neverRan": "尚未有任何維護執行紀錄。",
+  "maintenance.history": "更早：",
+  "maintenance.queue": "清理佇列：{pending} 筆待處理，{due} 筆已到期",
+  "maintenance.count": "數量",
+  "maintenance.oldest": "最舊",
+  "confirm.runMaintenance.title": "立即執行維護？",
+  "confirm.runMaintenance.description":
+    "執行與每週 cron 相同的完整維護，包含刪除佇列中的儲存物件，最多需要五分鐘。",
+  "auditAction.run-maintenance": "執行維護",
+  "status.skipped": "略過",
+  "trigger.cron": "每週 cron",
+  "trigger.manual": "手動請求",
+  "trigger.admin": "管理介面",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -403,6 +457,12 @@ const valueTranslationKeys = {
     started: "status.started",
     succeeded: "status.succeeded",
     failed: "status.failed",
+    skipped: "status.skipped",
+  },
+  trigger: {
+    cron: "trigger.cron",
+    manual: "trigger.manual",
+    admin: "trigger.admin",
   },
   auditAction: {
     "grant-admin": "auditAction.grant-admin",
@@ -414,6 +474,7 @@ const valueTranslationKeys = {
     "resume-retirement": "auditAction.resume-retirement",
     "close-room-storage": "auditAction.close-room-storage",
     "run-room-retention": "auditAction.run-room-retention",
+    "run-maintenance": "auditAction.run-maintenance",
   },
   targetType: {
     account: "targetType.account",

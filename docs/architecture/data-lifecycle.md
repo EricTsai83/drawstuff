@@ -216,6 +216,7 @@ deployment:
 | Rows | Deleted when | Why it is safe |
 | --- | --- | --- |
 | `admin_audit_event` | older than 365 days | audit has no other retention requirement |
+| `maintenance_run` | older than 180 days | operator history of runs only |
 | `collaboration_operation` | terminal over 24 h | receipts only replay within `resultRetentionMs`; pending rows stay |
 | `collaboration_lifecycle_subject` | account/scene row gone, and unfrozen or retired over 30 days ago | identity and registration also require the user/scene row; frozen, unretired subjects (retirements in flight) are never deleted |
 | `collaboration_room` (ended) | storage fenced, data reclaimed, ended over 90 days ago | the creation fence stays and alone refuses the roomId |

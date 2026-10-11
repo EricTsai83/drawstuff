@@ -29,6 +29,7 @@ import {
   collaborationSnapshot,
   deferredFileCleanup,
   fileRecord,
+  maintenanceRun,
   scene,
   sharedScene,
   user,
@@ -291,6 +292,7 @@ const purgeFinishedQueueRowsJob: MaintenanceJob = {
 /** How long each kind of bookkeeping row outlives its purpose. */
 const RECORD_RETENTION = {
   adminAuditEventsMs: 365 * DAY_MS,
+  maintenanceRunsMs: 180 * DAY_MS,
   /** Replay window of a storage operation receipt (`resultRetentionMs`). */
   operationReceiptsMs: DAY_MS,
   retiredSubjectsMs: 30 * DAY_MS,
@@ -339,6 +341,13 @@ export const recordRetentionJob: MaintenanceJob = {
         ),
       )
       .returning({ id: adminAuditEvent.id });
+
+    const maintenanceRuns = await db
+      .delete(maintenanceRun)
+      .where(
+        lt(maintenanceRun.startedAt, ago(RECORD_RETENTION.maintenanceRunsMs)),
+      )
+      .returning({ id: maintenanceRun.id });
 
     const operations = await db
       .delete(collaborationOperation)
@@ -450,6 +459,7 @@ export const recordRetentionJob: MaintenanceJob = {
 
     return {
       auditEvents: auditEvents.length,
+      maintenanceRuns: maintenanceRuns.length,
       operationReceipts: operations.length,
       lifecycleSubjects: retiredSubjects.length,
       endedRooms: endedRooms.length,

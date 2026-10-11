@@ -18,6 +18,7 @@ import {
   listAdminAnomalies,
   runRoomRetention,
 } from "@/server/admin/anomalies";
+import { readMaintenanceStatus } from "@/server/admin/maintenance-status";
 import {
   endRoom,
   resumeRetirement,
@@ -244,6 +245,9 @@ export const adminRouter = createTRPCRouter({
       return { user: target, scenes: targetScenes, rooms: targetRooms, grant };
     }),
   anomalies: adminProcedure.query(({ ctx }) => listAdminAnomalies(ctx.db)),
+  maintenanceStatus: adminProcedure.query(({ ctx }) =>
+    readMaintenanceStatus(ctx.db),
+  ),
   failedCleanups: adminProcedure.query(async ({ ctx }) => {
     const failed = eq(deferredFileCleanup.status, "failed");
     const [total, items] = await Promise.all([

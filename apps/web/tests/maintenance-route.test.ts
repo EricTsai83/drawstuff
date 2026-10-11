@@ -58,9 +58,24 @@ vi.mock("postgres", () => ({
   },
 }));
 
+const { sessionUser } = vi.hoisted(() => ({
+  sessionUser: { id: null as string | null },
+}));
+vi.mock("@/lib/auth", () => ({
+  auth: {
+    api: {
+      getSession: () =>
+        Promise.resolve(
+          sessionUser.id ? { user: { id: sessionUser.id } } : null,
+        ),
+    },
+  },
+}));
+
 import * as schema from "@/server/db/schema";
 import { registerTestDatabase } from "./support/pglite-db";
 import * as route from "@/app/api/maintenance/cleanup/route";
+import * as adminRoute from "@/app/api/admin/maintenance/route";
 
 type MaintenanceResponse = {
   jobs?: Array<{ name: string; status: string }>;
@@ -89,6 +104,10 @@ beforeEach(async () => {
   lockState.released = 0;
   lockState.ended = 0;
   deletedObjectKeys.length = 0;
+  sessionUser.id = null;
+  await testDb.delete(schema.maintenanceRun);
+  await testDb.delete(schema.adminAuditEvent);
+  await testDb.delete(schema.adminGrant);
   await testDb.delete(schema.fileRecord);
   await testDb.delete(schema.deferredFileCleanup);
   await testDb.delete(schema.scene);
@@ -242,5 +261,59 @@ describe("maintenance cleanup route", () => {
     });
     // dryRun defaults to true: the intruder survives.
     expect(await testDb.select().from(schema.user)).toHaveLength(2);
+  });
+});
+
+describe("maintenance run records", () => {
+  it("records every run with its trigger and outcome", async () => {
+    expect((await get()).status).toBe(200);
+    lockState.locked = false;
+    expect((await post()).status).toBe(200);
+
+    const runs = await testDb
+      .select()
+      .from(schema.maintenanceRun)
+      .orderBy(schema.maintenanceRun.startedAt);
+    expect(runs.map((run) => [run.trigger, run.status])).toEqual([
+      ["cron", "succeeded"],
+      ["manual", "skipped"],
+    ]);
+    expect(JSON.parse(runs[0]!.report!)).toMatchObject({ failed: 0 });
+  });
+});
+
+describe("admin maintenance route", () => {
+  const adminPost = (contentType = "application/json") =>
+    adminRoute.POST(
+      new Request("http://localhost/api/admin/maintenance", {
+        method: "POST",
+        headers: { "content-type": contentType },
+        body: "{}",
+      }),
+    );
+
+  it("lets only an operator run maintenance, with an audit trail", async () => {
+    expect((await adminPost()).status).toBe(401);
+    sessionUser.id = "owner";
+    expect((await adminPost()).status).toBe(403);
+    expect((await adminPost("text/plain")).status).toBe(415);
+
+    await testDb.insert(schema.adminGrant).values({
+      userId: "owner",
+      role: "operator",
+      grantSource: "bootstrap",
+    });
+    const response = await adminPost();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ failed: 0 });
+
+    const [run] = await testDb.select().from(schema.maintenanceRun);
+    expect(run).toMatchObject({ trigger: "admin", status: "succeeded" });
+    const [audit] = await testDb.select().from(schema.adminAuditEvent);
+    expect(audit).toMatchObject({
+      action: "run-maintenance",
+      targetType: "maintenance",
+      status: "succeeded",
+    });
   });
 });

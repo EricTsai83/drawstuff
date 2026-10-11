@@ -267,4 +267,67 @@ describe("admin anomalies", () => {
       status: "succeeded",
     });
   });
+
+  it("reports recent runs, the cleanup backlog, and Worker health", async () => {
+    await testDb.delete(schema.maintenanceRun);
+    await testDb.insert(schema.maintenanceRun).values({
+      trigger: "cron",
+      status: "failed",
+      failedJobs: 1,
+      startedAt: ago(HOUR_MS),
+      report: JSON.stringify({
+        failed: 1,
+        jobs: [
+          {
+            name: "drain-cleanup-queue",
+            status: "ok",
+            detail: { remaining: 3 },
+          },
+          { name: "record-retention", status: "error", error: "boom" },
+        ],
+      }),
+    });
+    await testDb.insert(schema.deferredFileCleanup).values([
+      { utFileKey: "a", reason: "delete-user", nextAttemptAt: ago(1_000) },
+      { utFileKey: "b", reason: "delete-user", nextAttemptAt: ago(-HOUR_MS) },
+      { utFileKey: "c", reason: "replace-thumbnail" },
+    ]);
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        Response.json({
+          ok: true,
+          version: { id: "v-123", tag: "" },
+          ready: { roomTokenSecret: true, allowedOrigins: true },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const status = await admin().maintenanceStatus();
+      expect(status.runs[0]).toMatchObject({
+        trigger: "cron",
+        status: "failed",
+        jobs: [
+          { name: "drain-cleanup-queue", detail: { remaining: 3 } },
+          { name: "record-retention", status: "error", error: "boom" },
+        ],
+      });
+      expect(status.backlog).toMatchObject({ pending: 3, due: 2 });
+      expect(status.backlog.byReason[0]).toMatchObject({
+        reason: "delete-user",
+        count: 2,
+      });
+      expect(status.health).toMatchObject({ reachable: true, ok: true });
+
+      fetchMock.mockImplementation(() =>
+        Promise.reject(new TypeError("fetch failed")),
+      );
+      expect((await admin().maintenanceStatus()).health).toEqual({
+        reachable: false,
+        error: "TypeError",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

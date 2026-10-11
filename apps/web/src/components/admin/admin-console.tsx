@@ -14,6 +14,7 @@ import {
 
 import { AdminAnomalies } from "@/components/admin/admin-anomalies";
 import { AdminFailedCleanups } from "@/components/admin/admin-failed-cleanups";
+import { AdminMaintenance } from "@/components/admin/admin-maintenance";
 import {
   AdminStatusBadge,
   formatAdminDate,
@@ -157,6 +158,8 @@ export function AdminConsole({
         </section>
 
         <AdminAnomalies />
+
+        <AdminMaintenance />
 
         <AdminFailedCleanups />
 

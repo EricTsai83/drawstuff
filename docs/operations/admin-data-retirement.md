@@ -121,6 +121,21 @@ shows its total, most recent occurrence, and up to 50 oldest rows. Thresholds ar
 `collaboration_lifecycle_subject.frozen_at` is a nullable column added for this view: run `db:push`
 before deploying code that reads it.
 
+## Maintenance
+
+The **Maintenance** section of `/admin` (`admin.maintenanceStatus`) shows:
+
+- the collaboration Worker's `/healthz` (reachable, configuration ready, deployed version);
+- the last 10 maintenance runs from `maintenance_run` — cron, manual `POST` and admin runs are all
+  recorded with per-job outcomes (a missing weekly row means the cron did not run);
+- the cleanup queue backlog by reason (count, oldest, highest attempts) and how many rows are due.
+
+**Run maintenance now** posts to `/api/admin/maintenance` (operator session, JSON only, audited
+`run-maintenance`), which runs the same routine set as the cron under the same advisory lock and
+`maxDuration` (a concurrent run is reported as skipped). Use it after retrying failed cleanup or
+resuming a retirement so queued deletions happen without waiting for Monday. `maintenance_run` is a
+new table: run `db:push` before deploying.
+
 Account retirement rejects the currently authenticated administrator. Do not replace these calls
 with SQL deletion. After an operation, verify its `admin_audit_event` status and inspect
 `deferred_file_cleanup` for the enqueued storage keys — retirement never deletes storage objects

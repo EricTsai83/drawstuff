@@ -14,7 +14,8 @@ export type AdminAuditAction =
   | "retry-cleanup"
   | "resume-retirement"
   | "close-room-storage"
-  | "run-room-retention";
+  | "run-room-retention"
+  | "run-maintenance";
 
 export type AdminAuditTargetType =
   "scene" | "room" | "account" | "cleanup" | "maintenance";
