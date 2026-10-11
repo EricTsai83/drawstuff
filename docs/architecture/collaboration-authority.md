@@ -17,7 +17,7 @@ Room Durable Object（`CollaborationRoomV2`）的 SQLite 是房間權限唯一�
 3. 在邀請名單上的 email → 邀請角色與一般存取權角色取較高者。
 4. 一般存取權（`linkRole`）為 `viewer`／`editor` → 該角色；`none` → 無權限。
 
-`join` 只記錄誰開啟過（subject、email、lifecycle version、`last_joined_at`），供列表與「已加入」顯示，從不寫入角色。Room 指令：`create`、`join`、`set-link-role`、`allow-email`、`remove-email`、`complete-initialization`、`cancel-initialization`、`end-room`、`leave`。`remove-email` 刪除該邀請列（不留「已移除」狀態，重新邀請即恢復；一般存取權開放時對方仍可用連結進入），且不需 adapter 註冊，web 暫時不可用時仍能收回權限。`leave` 刪除自己的邀請列與開啟紀錄，也用來從「透過連結開啟過的」列表手動移除。
+`join` 只記錄誰開啟過（subject、email、lifecycle version、`last_joined_at`），供列表與「已加入」顯示，從不寫入角色。Room 指令：`create`、`join`、`set-link-role`、`set-label`、`allow-email`、`remove-email`、`complete-initialization`、`cancel-initialization`、`end-room`、`leave`。`remove-email` 刪除該邀請列（不留「已移除」狀態，重新邀請即恢復；一般存取權開放時對方仍可用連結進入），且不需 adapter 註冊，web 暫時不可用時仍能收回權限。`leave` 刪除自己的邀請列與開啟紀錄，也用來從「透過連結開啟過的」列表手動移除。`set-label` 只限擁有者，改名不影響權限、不推進 storage epoch；新名稱隨擁有者的帳號投影寫入 Neon 的房間列，其他人的列表與編輯器標籤讀同一列。
 
 權限變動後線上連線立即重算：失去存取權以 `membershipRevoked` 關閉，仍有存取但角色改變以 `roleChanged`（4015，client 重連取得新角色）關閉，房間結束以 `roomEnded` 關閉。
 
@@ -39,7 +39,7 @@ Snapshot 以 binary 明文編碼傳輸，每房間一列並帶 checksum。寫入
 
 ## 房間列表
 
-列表分兩區，由 DO 投影到 Neon：「我擁有的與受邀的」（`section: "mine"`）與「透過連結開啟過的」（`section: "link"`）。帳號投影以 subject 為鍵、帶 `access`（`owned`／`invited`／`link`）；邀請投影（`collaboration_room_invite`，adapter 指令 `project-invite`）以正規化 email 為鍵，讓尚未開啟過的邀請也出現在列表。同一房間的帳號列與邀請列以較新的 `projectionVersion` 決定是否列出、列在哪一區。失去存取權、離開或房間結束時投影為 tombstone。
+列表分兩區，由 DO 投影到 Neon：「我擁有的與受邀的」（`section: "mine"`）與「透過連結開啟過的」（`section: "link"`）。帳號投影以 subject 為鍵、帶 `access`（`owned`／`invited`／`link`）；邀請投影（`collaboration_room_invite`，adapter 指令 `project-invite`）以正規化 email 為鍵，讓尚未開啟過的邀請也出現在列表。同一房間的帳號列與邀請列以較新的 `projectionVersion` 決定是否列出、列在哪一區。失去存取權、離開或房間結束時投影為 tombstone。帳號投影另帶 `openedAt`（該帳號的 `last_joined_at`，存為 `collaboration_room_member.last_opened_at`），列表顯示最後開啟時間；舊事件沒有這個欄位時保留已存的值。列表另顯示擁有者名稱（受邀或透過連結時）與來源場景名稱（只給擁有者，因為場景是他的個人內容）；分享對話框的成員以帳號名稱加 email 顯示，沒有名稱時只顯示 email，名稱只回給已能看到成員 email 的擁有者。
 
 ## 資源釋放
 

@@ -344,11 +344,13 @@ export default function ExcalidrawEditor() {
     });
   }, [excalidrawAPI]);
 
+  const [managedRoomLabel, setManagedRoomLabel] = useState<string | null>(null);
   const storageStatusProps = useMemo(
     () => ({
       // A terminal room has nothing to save or copy from; the dialog explains.
       roomId: isRoomMode && !isRoomTerminal ? collaborationRoomId : null,
-      roomLabel: collaborationRoomLabel,
+      // Room's current name once the dialog has read it, so a rename shows here.
+      roomLabel: managedRoomLabel ?? collaborationRoomLabel,
       state: roomSaveState,
       showSaveStatus: collaborationRole !== "viewer",
       sourceSceneId,
@@ -367,6 +369,7 @@ export default function ExcalidrawEditor() {
       isRoomTerminal,
       collaborationRoomId,
       collaborationRoomLabel,
+      managedRoomLabel,
       roomSaveState,
       collaborationRole,
       sourceSceneId,
@@ -551,6 +554,7 @@ export default function ExcalidrawEditor() {
                 failureReason: collaborationFailureReason,
                 errorMessage: collaborationErrorMessage,
                 confirmRoomExit,
+                onRoomLabelChange: setManagedRoomLabel,
               }}
               cloudUpload={{
                 isRoom: isRoomMode,

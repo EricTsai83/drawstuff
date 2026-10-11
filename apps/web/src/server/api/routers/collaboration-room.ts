@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
@@ -13,6 +14,7 @@ import { issueAuthorityIdentity } from "@/server/collab/authority-identity";
 import { callAuthorityGateway } from "@/server/collab/authority-gateway";
 import { listProjectedRooms } from "@/server/collab/authority-projection";
 import { collaborationRoomsDisabled } from "@/server/collab/relay-routing";
+import { user } from "@/server/db/schema";
 
 /** Read-only compatibility name. Every management mutation uses collaborationAuthority.execute. */
 export const collaborationRoomRouter = createTRPCRouter({
@@ -40,7 +42,7 @@ export const collaborationRoomRouter = createTRPCRouter({
         },
         env.COLLAB_IDENTITY_SECRET,
       );
-      return authorityManagementSchema.parse(
+      const management = authorityManagementSchema.parse(
         await callAuthorityGateway(
           { url: env.COLLAB_CONTROL_URL, secret: env.COLLAB_AUTHORITY_SECRET },
           identity.proof,
@@ -55,6 +57,26 @@ export const collaborationRoomRouter = createTRPCRouter({
           },
         ),
       );
+      // Room returns members only to the owner; their names come from the
+      // accounts, so they reach no one who cannot already see the emails.
+      const ids = management.members.map((member) => member.userId);
+      const names = new Map(
+        ids.length
+          ? (
+              await ctx.db
+                .select({ id: user.id, name: user.name })
+                .from(user)
+                .where(inArray(user.id, ids))
+            ).map((row) => [row.id, row.name.trim() || null])
+          : [],
+      );
+      return {
+        ...management,
+        members: management.members.map((member) => ({
+          ...member,
+          name: names.get(member.userId) ?? null,
+        })),
+      };
     }),
   list: protectedProcedure.input(roomListInputSchema).query(({ ctx, input }) =>
     listProjectedRooms(

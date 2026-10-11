@@ -573,6 +573,71 @@ describe("Room access rule", () => {
     });
   });
 
+  it("renames the room for the owner only and projects the new name", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "editor");
+      await join(a, guest);
+      await expect(
+        send(a, { action: "set-label", label: "Guest's", actor: guest }),
+      ).rejects.toThrow("forbidden");
+      expect(a.state()?.label).toBe("");
+      const renamed = await send(a, { action: "set-label", label: "Plans" });
+      expect(renamed.status).toBe("enforced");
+      expect(a.state()?.label).toBe("Plans");
+      // No fence: a name grants nothing, so live sessions keep going.
+      expect(renamed.authorityEpoch).toBe(a.state()?.authority_epoch);
+      // The owner's row carries the name to the shared room row in Neon.
+      expect(queuedProjections(state).members.get(owner.subject)).toMatchObject(
+        { version: renamed.authRevision, label: "Plans", tombstone: false },
+      );
+    });
+  });
+
+  it("projects when each account last opened the room", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "viewer");
+      // Creating a room is not opening it.
+      await send(a, { action: "set-link-role", linkRole: "editor" });
+      expect(
+        queuedProjections(state).members.get(owner.subject)?.openedAt,
+      ).toBeNull();
+      const before = Date.now();
+      await join(a, guest);
+      const openedAt = queuedProjections(state).members.get(
+        guest.subject,
+      )?.openedAt;
+      expect(openedAt).toBeGreaterThanOrEqual(before);
+      expect(openedAt).toBeLessThanOrEqual(Date.now());
+    });
+  });
+
+  it("repairs over a same-revision projection queued by an older build", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "viewer");
+      await join(a, guest);
+      // Queued before the upgrade: the same event without `openedAt`.
+      const older = {
+        ...queuedProjections(state).members.get(guest.subject)!,
+      };
+      delete older.openedAt;
+      state.storage.sql.exec(
+        "UPDATE authority_work SET body=? WHERE id=?",
+        JSON.stringify({ kind: "projection", event: older }),
+        `projection:${guest.subject}`,
+      );
+      state.storage.sql.exec(
+        "UPDATE authority_room SET projection_dirty=1,projection_cursor=NULL",
+      );
+      while (a.state()?.projection_dirty) await a.repairProjections();
+      expect(
+        queuedProjections(state).members.get(guest.subject)?.openedAt,
+      ).toEqual(expect.any(Number));
+    });
+  });
+
   it("takes the higher of invitation and general access (D7)", async () => {
     const { roomId, stub } = fixture();
     await runInDurableObject(stub, async (_instance, state) => {

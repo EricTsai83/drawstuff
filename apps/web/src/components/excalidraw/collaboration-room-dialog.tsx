@@ -184,6 +184,8 @@ export type CollaborationRoomDialogProps = {
   roomId: string | null;
   onRoomIdChange: (roomId: string | null) => void;
   confirmRoomExit?: () => boolean;
+  /** The room's current name from Room, so a rename reaches the editor's label. */
+  onRoomLabelChange?: (label: string | null) => void;
   status: CollaborationRoomStatus;
   /** Why a failed session failed; `no-access` replaces the dialog's content. */
   failureReason: CollaborationFailureReason | null;
@@ -204,6 +206,7 @@ export function CollaborationRoomDialog({
   roomId,
   onRoomIdChange,
   confirmRoomExit,
+  onRoomLabelChange,
   status,
   failureReason,
   errorMessage,
@@ -274,6 +277,11 @@ export function CollaborationRoomDialog({
   );
   const room = roomQuery.data ?? null;
   const isOwner = room?.role === "owner";
+  const roomLabel = room?.label ?? null;
+  useEffect(
+    () => onRoomLabelChange?.(roomLabel),
+    [roomLabel, onRoomLabelChange],
+  );
 
   const invalidateRoom = async (options?: {
     /**
@@ -625,6 +633,16 @@ export function CollaborationRoomDialog({
       role: allowRole,
     });
   };
+  /** The name being typed while the owner renames the room; null while closed. */
+  const [renaming, setRenaming] = useState<string | null>(null);
+  useEffect(() => setRenaming(null), [roomId, open]);
+  const renameRoom = async () => {
+    if (!roomId || renaming === null) return;
+    const label = renaming.trim() || t("collaboration.room.untitled");
+    setRenaming(null);
+    if (label === room?.label) return;
+    await manage({ ...command(roomId), action: "set-label", label });
+  };
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
     null,
   );
@@ -645,7 +663,16 @@ export function CollaborationRoomDialog({
     );
     return [
       ...owners.map((member): Person => ({ kind: "member", member })),
-      ...room.allowlist.map((invite): Person => ({ kind: "invite", invite })),
+      // An invitation someone has opened shows their account name, when that
+      // member is on the current page.
+      ...room.allowlist.map((invite): Person => ({
+        kind: "invite",
+        invite,
+        name:
+          room.members.find(
+            (member) => member.email === invite.email.toLowerCase(),
+          )?.name ?? null,
+      })),
       ...viaLink.map((member): Person => ({ kind: "member", member })),
     ];
   }, [room, isOwner]);
@@ -706,15 +733,68 @@ export function CollaborationRoomDialog({
         showCloseButton={!terminal}
       >
         <DialogHeader>
-          <DialogTitle className="pr-8">
-            {t(
-              !roomId
-                ? "collaboration.create.title"
+          <div className="flex min-w-0 items-center gap-1 pr-8">
+            <DialogTitle className="truncate">
+              {!roomId
+                ? t("collaboration.create.title")
                 : isAuthenticated && terminal
-                  ? terminalCopy.title
-                  : "collaboration.share.title",
+                  ? t(terminalCopy.title)
+                  : (room?.label ?? "") || t("collaboration.share.title")}
+            </DialogTitle>
+            {isOwner && !terminal && renaming === null && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="shrink-0 pointer-coarse:size-10"
+                disabled={managementPending}
+                aria-label={t("collaboration.room.rename")}
+                title={t("collaboration.room.rename")}
+                onClick={() => setRenaming(room.label)}
+              >
+                <Pencil aria-hidden="true" />
+              </Button>
             )}
-          </DialogTitle>
+          </div>
+          {renaming !== null && (
+            <form
+              className="flex gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void renameRoom();
+              }}
+            >
+              {/* type="text": Excalidraw claims keys from other input types. */}
+              <Input
+                type="text"
+                autoFocus
+                className="min-w-0 flex-1"
+                aria-label={t("collaboration.room.name")}
+                value={renaming}
+                maxLength={ROOM_LABEL_MAX_LENGTH}
+                placeholder={t("collaboration.room.untitled")}
+                onChange={(event) => setRenaming(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    // Closes the rename, not the dialog.
+                    event.stopPropagation();
+                    setRenaming(null);
+                  }
+                }}
+              />
+              <Button type="submit" size="sm" className="h-auto">
+                {t("buttons.save")}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-auto"
+                onClick={() => setRenaming(null)}
+              >
+                {t("buttons.cancel")}
+              </Button>
+            </form>
+          )}
           {isAuthenticated && roomId && statusNote && (
             <p
               role="status"
@@ -959,16 +1039,19 @@ export function CollaborationRoomDialog({
                     person.kind === "invite" ? (
                       <PersonRow
                         key={`invite:${person.invite.email}`}
-                        label={person.invite.email}
-                        status={
+                        label={person.name ?? person.invite.email}
+                        status={[
+                          person.name && person.invite.email,
                           person.invite.lastJoinedAt
                             ? t("collaboration.person.joinedAt", {
                                 date: new Date(
                                   person.invite.lastJoinedAt,
                                 ).toLocaleDateString(),
                               })
-                            : t("collaboration.allowlist.notJoined")
-                        }
+                            : t("collaboration.allowlist.notJoined"),
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       >
                         <RoleSelect
                           size="sm"
@@ -1022,11 +1105,23 @@ export function CollaborationRoomDialog({
                     ) : (
                       <PersonRow
                         key={`member:${person.member.userId}`}
-                        label={person.member.email}
+                        label={
+                          person.member.userId === authIdentity
+                            ? t("collaboration.person.you", {
+                                name: person.member.name ?? person.member.email,
+                              })
+                            : (person.member.name ?? person.member.email)
+                        }
                         status={
-                          person.member.role === "owner"
-                            ? null
-                            : t("collaboration.person.viaLink")
+                          [
+                            // A named person still shows the address that
+                            // identifies them; email alone needs no repeat.
+                            person.member.name && person.member.email,
+                            person.member.role !== "owner" &&
+                              t("collaboration.person.viaLink"),
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || null
                         }
                       >
                         {person.member.role && (
@@ -1126,7 +1221,11 @@ export function CollaborationRoomDialog({
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>
-                    {confirmAction && t(CONFIRM_COPY[confirmAction].title)}
+                    {confirmAction &&
+                      t(CONFIRM_COPY[confirmAction].title, {
+                        name:
+                          (room?.label ?? "") || t("collaboration.share.title"),
+                      })}
                   </AlertDialogTitle>
                   <AlertDialogDescription>
                     {confirmAction &&
@@ -1159,7 +1258,11 @@ export function CollaborationRoomDialog({
 type RoomManagement = RouterOutputs["collaborationRoom"]["get"];
 type Person =
   | { kind: "member"; member: RoomManagement["members"][number] }
-  | { kind: "invite"; invite: RoomManagement["allowlist"][number] };
+  | {
+      kind: "invite";
+      invite: RoomManagement["allowlist"][number];
+      name: string | null;
+    };
 
 /** One person on the invitation list or in the room; controls are the children. */
 function PersonRow(props: {

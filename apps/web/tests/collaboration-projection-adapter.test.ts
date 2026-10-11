@@ -82,6 +82,61 @@ describe("monotonic room projections", () => {
       }),
     ).toMatchObject({ authorityEpoch: 5, storageState: "ready" });
   });
+  it("lists the room's current name, its owner, and when the account last opened it", async () => {
+    const f = await adapterFixture(db);
+    await applyRoomProjection(db, f.projection({ openedAt: 1_234 }));
+    // A rename reaches the shared room row through any account's newer event.
+    await applyRoomProjection(
+      db,
+      f.projection({
+        subject: f.owner,
+        role: "owner",
+        access: "owned",
+        version: 3,
+        label: "Renamed",
+      }),
+    );
+    // An event queued before Room sent the time keeps the stored one.
+    await applyRoomProjection(
+      db,
+      f.projection({ version: 4, label: "Renamed" }),
+    );
+    expect((await listGuest(f)).rooms).toMatchObject([
+      {
+        label: "Renamed",
+        ownerName: "Owner",
+        openedAt: 1_234,
+        sceneName: null,
+      },
+    ]);
+  });
+  it("names the source scene for its owner only", async () => {
+    const f = await adapterFixture(db);
+    const [row] = await testDb
+      .insert(schema.scene)
+      .values({ name: "Roadmap", userId: f.owner, sceneData: "stub" })
+      .returning({ id: schema.scene.id });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ sceneId: row!.id })
+      .where(eq(schema.collaborationRoom.roomId, f.roomId));
+    await applyRoomProjection(db, f.projection({ sceneId: row!.id }));
+    await applyRoomProjection(
+      db,
+      f.projection({
+        subject: f.owner,
+        role: "owner",
+        access: "owned",
+        sceneId: row!.id,
+      }),
+    );
+    expect(
+      (await listProjectedRooms(db, { subject: f.owner, email: null })).rooms,
+    ).toMatchObject([{ sceneName: "Roadmap", openedAt: null }]);
+    expect((await listGuest(f)).rooms).toMatchObject([
+      { sceneId: row!.id, sceneName: null },
+    ]);
+  });
   it("does not recreate projections after account/room deletion, and permanently protects ended rooms", async () => {
     const f = await adapterFixture(db);
     await applyRoomProjection(db, f.projection());

@@ -536,6 +536,8 @@ export const collaborationRoomMember = createTable(
     revokedAt: timestamp("revoked_at"),
     projectionVersion: integer("projection_version").default(1).notNull(),
     listedAt: timestamp("listed_at").defaultNow().notNull(),
+    /** 這個帳號最後開啟房間的時間（Room 的 `last_joined_at`）；只供列表顯示。 */
+    lastOpenedAt: timestamp("last_opened_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
