@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import {
   ActivityIcon,
   BrushCleaningIcon,
@@ -9,6 +11,7 @@ import {
 
 import { AdminAnomalies } from "@/components/admin/admin-anomalies";
 import { useAdminI18n } from "@/components/admin/admin-i18n";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/trpc/react";
@@ -33,6 +36,7 @@ export function AdminOverview() {
       label: t("stats.activeRooms"),
       value: overview.data?.activeRoomCount,
       icon: ActivityIcon,
+      href: "/admin/rooms",
     },
     {
       label: t("stats.pendingCleanup"),
@@ -58,7 +62,7 @@ export function AdminOverview() {
           </p>
         )}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {stats.map(({ label, value, icon: Icon }) => (
+          {stats.map(({ label, value, icon: Icon, href }) => (
             <Card key={label} size="sm">
               <CardHeader className="flex grid-cols-none flex-row items-center justify-between">
                 <span className="text-muted-foreground font-medium">
@@ -71,6 +75,17 @@ export function AdminOverview() {
                   <Spinner />
                 ) : (
                   <p className="text-2xl font-semibold tabular-nums">{value}</p>
+                )}
+                {href && (
+                  <Link
+                    href={href}
+                    className={buttonVariants({
+                      variant: "link",
+                      className: "mt-2",
+                    })}
+                  >
+                    {t("roomList.viewAll")}
+                  </Link>
                 )}
               </CardContent>
             </Card>

@@ -8,6 +8,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   or,
 } from "drizzle-orm";
 import { z } from "zod";
@@ -323,6 +324,57 @@ export const adminRouter = createTRPCRouter({
   userFootprint: adminProcedure
     .input(z.object({ userId: z.string().min(1) }))
     .query(({ ctx, input }) => readUserFootprint(ctx.db, input.userId)),
+  listRooms: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(50).default(25),
+        cursor: z
+          .object({ createdAt: z.date(), roomId: roomIdInputSchema })
+          .optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const { cursor, limit } = input;
+      const rows = await ctx.db
+        .select({
+          roomId: collaborationRoom.roomId,
+          label: collaborationRoom.label,
+          status: collaborationRoom.status,
+          createdAt: collaborationRoom.createdAt,
+          ownerName: user.name,
+          ownerEmail: user.email,
+        })
+        .from(collaborationRoom)
+        .innerJoin(user, eq(user.id, collaborationRoom.ownerId))
+        .where(
+          and(
+            inArray(collaborationRoom.status, ["initializing", "ready"]),
+            cursor
+              ? or(
+                  lt(collaborationRoom.createdAt, cursor.createdAt),
+                  and(
+                    eq(collaborationRoom.createdAt, cursor.createdAt),
+                    lt(collaborationRoom.roomId, cursor.roomId),
+                  ),
+                )
+              : undefined,
+          ),
+        )
+        .orderBy(
+          desc(collaborationRoom.createdAt),
+          desc(collaborationRoom.roomId),
+        )
+        .limit(limit + 1);
+      const rooms = rows.slice(0, limit);
+      const last = rooms.at(-1);
+      return {
+        rooms,
+        nextCursor:
+          rows.length > limit && last
+            ? { createdAt: last.createdAt, roomId: last.roomId }
+            : null,
+      };
+    }),
   getRoom: adminProcedure
     .input(z.object({ roomId: roomIdInputSchema }))
     .query(({ ctx, input }) => readRoom(ctx.db, input.roomId)),

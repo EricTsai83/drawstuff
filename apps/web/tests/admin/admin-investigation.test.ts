@@ -183,6 +183,85 @@ describe("admin investigation", () => {
     });
   });
 
+  it("lists every live room, even without a personal list projection", async () => {
+    await testDb.insert(schema.collaborationRoom).values([
+      {
+        roomId: "room-ready",
+        ownerId: "target",
+        label: "Team board",
+        status: "ready",
+        storageState: "ready",
+      },
+      {
+        roomId: "room-initializing",
+        ownerId: "admin-user",
+        status: "initializing",
+      },
+      {
+        roomId: "room-ended",
+        ownerId: "target",
+        status: "ended",
+        storageState: "ended",
+      },
+    ]);
+
+    const result = await admin().listRooms({ limit: 25 });
+    expect(result.rooms.map((room) => room.roomId).sort()).toEqual([
+      "room-initializing",
+      "room-ready",
+    ]);
+    expect(
+      result.rooms.find((room) => room.roomId === "room-ready"),
+    ).toMatchObject({
+      label: "Team board",
+      ownerName: "Target",
+      ownerEmail: "target@example.com",
+      status: "ready",
+    });
+    expect(result.rooms.length).toBe(
+      (await admin().overview()).activeRoomCount,
+    );
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it("paginates live rooms without duplicates when creation times tie", async () => {
+    const createdAt = new Date("2026-10-10T10:00:00Z");
+    await testDb.insert(schema.collaborationRoom).values([
+      { roomId: "room-a", ownerId: "target", createdAt },
+      { roomId: "room-b", ownerId: "target", createdAt },
+      { roomId: "room-c", ownerId: "target", createdAt },
+      {
+        roomId: "room-old",
+        ownerId: "target",
+        createdAt: new Date("2026-10-09T10:00:00Z"),
+      },
+    ]);
+    const first = await admin().listRooms({ limit: 2 });
+    expect(first.rooms.map((room) => room.roomId)).toEqual([
+      "room-c",
+      "room-b",
+    ]);
+    if (!first.nextCursor) throw new Error("expected a next page");
+    const second = await admin().listRooms({
+      limit: 2,
+      cursor: first.nextCursor,
+    });
+    expect(second.rooms.map((room) => room.roomId)).toEqual([
+      "room-a",
+      "room-old",
+    ]);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it("keeps the global room inventory restricted to administrators", async () => {
+    await expect(
+      testCaller(testDb, "target").admin.listRooms({}),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      testCaller(testDb, null).admin.listRooms({}),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
   it("filters the user list to administrators", async () => {
     const operators = await admin().listUsers({
       search: "",
