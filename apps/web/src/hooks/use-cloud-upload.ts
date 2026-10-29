@@ -31,6 +31,10 @@ import {
 } from "@/lib/collab/personal-draft";
 import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
+import {
+  captureSceneContent,
+  hasSceneContentChanged,
+} from "@/lib/scene-content";
 import { sha256Hex } from "@/lib/sha256";
 
 function formatMegabytes(bytes: number): string {
@@ -92,6 +96,8 @@ export function useCloudUpload(
     syncCurrentScene,
     clearCurrentScene,
     markCurrentSceneDirty,
+    getCanvasSaveGeneration,
+    getCurrentSceneIdentity,
   } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
   currentSceneIdRef.current = currentSceneId;
@@ -149,6 +155,7 @@ export function useCloudUpload(
         return false;
       }
       const capturedSceneId = currentSceneIdRef.current;
+      const capturedGeneration = getCanvasSaveGeneration();
       const capturedWorkspaceId = currentWorkspaceIdRef.current;
       let capturedRevision =
         detached && options?.roomAction === "source"
@@ -167,6 +174,7 @@ export function useCloudUpload(
         }
 
         const captured = structuredClone(scene);
+        const capturedContent = captureSceneContent(captured);
         const elements = captured.elements;
         const appState = captured.appState;
         const referencedIds = collectReferencedFileIds(elements);
@@ -565,14 +573,28 @@ export function useCloudUpload(
                   appState: { ...appState, name: sceneName },
                   files,
                 },
-                detached ? String(id) : capturedSceneId,
+                detached ? String(id) : (capturedSceneId ?? null),
+                detached ? undefined : capturedContent,
+                detached ? undefined : capturedGeneration,
               );
             }
-          } else if (currentSceneIdRef.current === capturedSceneId) {
+          } else if (
+            currentSceneIdRef.current === capturedSceneId &&
+            getCanvasSaveGeneration() === capturedGeneration
+          ) {
+            const current = getCurrentSceneSnapshot(excalidrawAPI);
+            const hasNewChanges =
+              !current || hasSceneContentChanged(current, capturedContent);
+            const identity = getCurrentSceneIdentity();
+            const acknowledgedRevision =
+              identity.id === String(id)
+                ? Math.max(revision, identity.revision ?? 0)
+                : revision;
             syncCurrentScene({
               id: String(id),
-              revision,
+              revision: acknowledgedRevision,
               workspaceId: effectiveWorkspaceId,
+              ...(hasNewChanges ? { isDirty: true } : {}),
             });
           }
           setStatus("success");
@@ -624,6 +646,8 @@ export function useCloudUpload(
       syncCurrentScene,
       clearCurrentScene,
       markCurrentSceneDirty,
+      getCanvasSaveGeneration,
+      getCurrentSceneIdentity,
     ],
   );
 

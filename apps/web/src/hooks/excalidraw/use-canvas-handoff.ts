@@ -56,6 +56,7 @@ export function useCanvasHandoff(options: {
     suppressDirtyTracking,
     resumeDirtyTracking,
     getCurrentSceneIdentity,
+    getCanvasSaveGeneration,
   } = useSceneSession();
 
   // Read at call time, not captured: a re-created editor callback must not
@@ -137,6 +138,7 @@ export function useCanvasHandoff(options: {
           current.excalidrawAPI,
           current.cancelPendingSceneSave,
           getCurrentSceneIdentity(),
+          getCanvasSaveGeneration(),
         );
         if (!params.keepCanvas) {
           // resetScene() restores Excalidraw's default (editable) view mode,
@@ -153,7 +155,13 @@ export function useCanvasHandoff(options: {
       }
       return "prepared";
     },
-    [suppressDirtyTracking, resumeDirtyTracking, getCurrentSceneIdentity, t],
+    [
+      suppressDirtyTracking,
+      resumeDirtyTracking,
+      getCurrentSceneIdentity,
+      getCanvasSaveGeneration,
+      t,
+    ],
   );
 
   const cancelPendingCanvasDecision = useCallback(() => {

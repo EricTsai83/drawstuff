@@ -11,6 +11,8 @@ import {
   resumeLocalScenePersistence,
 } from "@/data/local-scene-persistence";
 import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
+import type { captureSceneContent } from "@/lib/scene-content";
+import { hasSceneContentChanged } from "@/lib/scene-content";
 import { saveToLocalStorage } from "@/lib/excalidraw";
 
 // Contains only the personal canvas captured BEFORE the room takes ownership.
@@ -23,6 +25,7 @@ const SESSION_KEYS = [
   STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID,
 ] as const;
 type PersonalDraft = {
+  generation?: number;
   canvas: ReturnType<typeof importFromLocalStorage>;
   session: Record<string, string | null>;
 };
@@ -44,6 +47,7 @@ export function preservePersonalDraft(
   api: ExcalidrawImperativeAPI,
   cancelPendingSave: () => void,
   identity?: SceneIdentity,
+  generation?: number,
 ): void {
   if (!sessionStorage.getItem(DRAFT_KEY)) {
     const canvas = {
@@ -54,6 +58,8 @@ export function preservePersonalDraft(
           theme,
           viewBackgroundColor,
           gridSize,
+          gridStep,
+          gridModeEnabled,
           scrollX,
           scrollY,
           zoom,
@@ -63,6 +69,8 @@ export function preservePersonalDraft(
           theme,
           viewBackgroundColor,
           gridSize,
+          gridStep,
+          gridModeEnabled,
           scrollX,
           scrollY,
           zoom,
@@ -74,6 +82,7 @@ export function preservePersonalDraft(
     sessionStorage.setItem(
       DRAFT_KEY,
       JSON.stringify({
+        generation,
         canvas,
         session: identity
           ? {
@@ -96,7 +105,10 @@ export function preservePersonalDraft(
   pauseLocalScenePersistence("collaboration-canvas");
 }
 
-export function restorePersonalDraft(api: ExcalidrawImperativeAPI): boolean {
+export function restorePersonalDraft(
+  api: ExcalidrawImperativeAPI,
+  onRestore?: (generation?: number) => void,
+): boolean {
   if (isSigningOut()) return false;
   const raw = sessionStorage.getItem(DRAFT_KEY);
   if (!raw) return false;
@@ -134,15 +146,21 @@ export function restorePersonalDraft(api: ExcalidrawImperativeAPI): boolean {
     clearLocalSceneContent();
   }
   clearPersonalDraft();
+  // Restore the save identity only after the original canvas and session have
+  // actually been restored. Ordinary reloads must still invalidate old saves.
+  onRestore?.(draft.generation);
   return true;
 }
 
-/** Update the preserved source only after its explicit cloud commit succeeds. */
+/** Apply a successful source commit. A late personal upload acknowledges its
+ * snapshot without replacing the canvas preserved when entering the room. */
 export function updatePreservedPersonalDraft(
   sceneId: string,
   revision: number,
   canvas: PersonalDraft["canvas"],
-  expectedSceneId: string | undefined = sceneId,
+  expectedSceneId: string | null = sceneId,
+  acknowledgedContent?: ReturnType<typeof captureSceneContent>,
+  expectedGeneration?: number,
 ): void {
   const raw = sessionStorage.getItem(DRAFT_KEY);
   if (!raw) {
@@ -158,14 +176,36 @@ export function updatePreservedPersonalDraft(
   }
   const draft = JSON.parse(raw) as PersonalDraft;
   if (
-    (draft.session[STORAGE_KEYS.CURRENT_SCENE_ID] ?? undefined) !==
-    expectedSceneId
+    (draft.session[STORAGE_KEYS.CURRENT_SCENE_ID] ?? null) !== expectedSceneId
   )
     return;
+  // Matching scene IDs (especially two unbound canvases) do not prove this
+  // draft came from the canvas whose upload is completing.
+  if (
+    acknowledgedContent &&
+    (expectedGeneration === undefined ||
+      draft.generation !== expectedGeneration)
+  )
+    return;
+  const existingRevision = Number(
+    draft.session[STORAGE_KEYS.CURRENT_SCENE_REVISION],
+  );
+  if (Number.isFinite(existingRevision) && existingRevision > revision) return;
+  // A personal upload that finishes after entering a room only acknowledges
+  // its snapshot. The draft may already contain edits made after that snapshot.
+  const hasNewChanges =
+    acknowledgedContent !== undefined &&
+    hasSceneContentChanged(
+      {
+        elements: draft.canvas.elements,
+        appState: draft.canvas.appState ?? {},
+      },
+      acknowledgedContent,
+    );
   draft.session[STORAGE_KEYS.CURRENT_SCENE_ID] = sceneId;
-  draft.canvas = canvas;
+  if (!acknowledgedContent) draft.canvas = canvas;
   draft.session[STORAGE_KEYS.CURRENT_SCENE_REVISION] = String(revision);
-  draft.session[STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY] = "false";
+  draft.session[STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY] = String(hasNewChanges);
   sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
 }
 

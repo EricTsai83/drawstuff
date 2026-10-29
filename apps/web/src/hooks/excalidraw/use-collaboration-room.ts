@@ -315,7 +315,7 @@ export function useCollaborationRoom(options: {
             reloadSceneSession();
             return;
           }
-          if (restorePersonalDraft(excalidrawAPI)) reloadSceneSession();
+          restorePersonalDraft(excalidrawAPI, reloadSceneSession);
         });
       },
       wrapRemoteApply,
@@ -346,7 +346,7 @@ export function useCollaborationRoom(options: {
   useEffect(() => {
     if (roomId || !excalidrawAPI) return;
     wrapRemoteApply(() => {
-      if (restorePersonalDraft(excalidrawAPI)) reloadSceneSession();
+      restorePersonalDraft(excalidrawAPI, reloadSceneSession);
     });
   }, [roomId, excalidrawAPI, reloadSceneSession, wrapRemoteApply]);
 

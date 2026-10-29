@@ -12,6 +12,7 @@ vi.mock("@/hooks/scene-session-context", () => ({
     suppressDirtyTracking: vi.fn(),
     resumeDirtyTracking: vi.fn(),
     getCurrentSceneIdentity: () => null,
+    getCanvasSaveGeneration: () => 0,
   }),
 }));
 vi.mock("@/lib/collab/personal-draft", () => ({
