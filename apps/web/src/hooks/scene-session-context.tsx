@@ -37,6 +37,8 @@ export type SceneIdentity = {
 type SceneSessionContextValue = {
   getCurrentSceneIdentity: () => SceneIdentity;
   getCanvasGeneration: () => number;
+  /** Save identity survives restoring the same personal draft from a room. */
+  getCanvasSaveGeneration: () => number;
   currentSceneId: string | undefined;
   currentWorkspaceId: string | undefined;
   lastSyncedRevision: number | undefined;
@@ -46,9 +48,11 @@ type SceneSessionContextValue = {
     id: string;
     revision?: number;
     workspaceId?: string;
+    /** Preserve edits made after the snapshot being acknowledged. */
+    isDirty?: boolean;
   }) => void;
   clearCurrentScene: () => void;
-  reloadSceneSession: () => void;
+  reloadSceneSession: (restoredFromGeneration?: number) => void;
   markCurrentSceneDirty: () => void;
   markCurrentSceneClean: () => void;
   /** Update only the synced revision without touching dirty state.
@@ -111,6 +115,11 @@ export function SceneSessionProvider({
     [],
   );
   const canvasGenerationRef = useRef(0);
+  const canvasSaveGenerationRef = useRef(0);
+  const getCanvasSaveGeneration = useCallback(
+    () => canvasSaveGenerationRef.current,
+    [],
+  );
   const getCanvasGeneration = useCallback(
     () => canvasGenerationRef.current,
     [],
@@ -152,12 +161,15 @@ export function SceneSessionProvider({
       id,
       revision,
       workspaceId,
+      isDirty: dirty = false,
     }: {
       id: string;
       revision?: number;
       workspaceId?: string;
+      isDirty?: boolean;
     }) => {
       canvasGenerationRef.current += 1;
+      canvasSaveGenerationRef.current = canvasGenerationRef.current;
       identityRef.current = {
         id,
         revision,
@@ -168,8 +180,8 @@ export function SceneSessionProvider({
       if (workspaceId !== undefined) {
         setCurrentWorkspaceId(workspaceId);
       }
-      setIsDirty(false);
-      isDirtyRef.current = false;
+      setIsDirty(dirty);
+      isDirtyRef.current = dirty;
       try {
         saveCurrentSceneIdToStorage(id);
         if (revision !== undefined) {
@@ -180,7 +192,7 @@ export function SceneSessionProvider({
         if (workspaceId !== undefined) {
           saveCurrentSceneWorkspaceIdToStorage(workspaceId);
         }
-        saveCurrentSceneDirtyToStorage(false);
+        saveCurrentSceneDirtyToStorage(dirty);
       } catch {
         // ignore storage errors
       }
@@ -190,6 +202,7 @@ export function SceneSessionProvider({
 
   const clearCurrentScene = useCallback(() => {
     canvasGenerationRef.current += 1;
+    canvasSaveGenerationRef.current = canvasGenerationRef.current;
     identityRef.current = {
       id: undefined,
       revision: undefined,
@@ -210,8 +223,19 @@ export function SceneSessionProvider({
     }
   }, []);
 
-  const reloadSceneSession = useCallback(() => {
-    canvasGenerationRef.current += 1;
+  const reloadSceneSession = useCallback((restoredFromGeneration?: number) => {
+    const restoredGeneration =
+      typeof restoredFromGeneration === "number" &&
+      Number.isSafeInteger(restoredFromGeneration) &&
+      restoredFromGeneration >= 0
+        ? restoredFromGeneration
+        : undefined;
+    // Persisted drafts can outlive this provider. Keep future identities above
+    // their restored origin so a new canvas cannot reuse an in-flight save ID.
+    canvasGenerationRef.current =
+      Math.max(canvasGenerationRef.current, restoredGeneration ?? 0) + 1;
+    canvasSaveGenerationRef.current =
+      restoredGeneration ?? canvasGenerationRef.current;
     try {
       identityRef.current = {
         id: loadCurrentSceneIdFromStorage(),
@@ -334,6 +358,7 @@ export function SceneSessionProvider({
     () => ({
       getCurrentSceneIdentity,
       getCanvasGeneration,
+      getCanvasSaveGeneration,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,
@@ -356,6 +381,7 @@ export function SceneSessionProvider({
     [
       getCurrentSceneIdentity,
       getCanvasGeneration,
+      getCanvasSaveGeneration,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,
