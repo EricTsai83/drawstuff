@@ -36,6 +36,7 @@ export type SceneIdentity = {
 
 type SceneSessionContextValue = {
   getCurrentSceneIdentity: () => SceneIdentity;
+  getCanvasGeneration: () => number;
   currentSceneId: string | undefined;
   currentWorkspaceId: string | undefined;
   lastSyncedRevision: number | undefined;
@@ -109,6 +110,11 @@ export function SceneSessionProvider({
     }),
     [],
   );
+  const canvasGenerationRef = useRef(0);
+  const getCanvasGeneration = useCallback(
+    () => canvasGenerationRef.current,
+    [],
+  );
   const [isSessionReady, setIsSessionReady] = useState(false);
   // Dirty-tracking suppression is reference-counted: independent suppressors
   // overlap (a collaboration write and a remote-scene apply can hold windows in
@@ -151,6 +157,7 @@ export function SceneSessionProvider({
       revision?: number;
       workspaceId?: string;
     }) => {
+      canvasGenerationRef.current += 1;
       identityRef.current = {
         id,
         revision,
@@ -182,6 +189,7 @@ export function SceneSessionProvider({
   );
 
   const clearCurrentScene = useCallback(() => {
+    canvasGenerationRef.current += 1;
     identityRef.current = {
       id: undefined,
       revision: undefined,
@@ -203,6 +211,7 @@ export function SceneSessionProvider({
   }, []);
 
   const reloadSceneSession = useCallback(() => {
+    canvasGenerationRef.current += 1;
     try {
       identityRef.current = {
         id: loadCurrentSceneIdFromStorage(),
@@ -324,6 +333,7 @@ export function SceneSessionProvider({
   const value = useMemo<SceneSessionContextValue>(
     () => ({
       getCurrentSceneIdentity,
+      getCanvasGeneration,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,
@@ -345,6 +355,7 @@ export function SceneSessionProvider({
     }),
     [
       getCurrentSceneIdentity,
+      getCanvasGeneration,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,
