@@ -4,6 +4,7 @@ import type { AppDictionary } from "./types";
 export const zhTW = {
   "toast.scene.loadCancelledByEdit":
     "畫布已有變更，已停止載入場景並保留你的修改。",
+  "collaboration.saveStillInProgress": "前一次儲存仍在進行，請稍後再試。",
   "storage.localSaveFailed":
     "本機儲存失敗，重新整理或關閉頁面可能遺失最新修改。請下載本機副本以保留內容。",
   "storage.detachedDraft": "未儲存 · 不在「{name}」中",

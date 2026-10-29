@@ -93,7 +93,7 @@ export type CollaborationRoomControllerDeps = {
     skipPrompt?: boolean;
     onDecisionPrompt: () => void;
   }) => Promise<CanvasHandoffOutcome>;
-  /** Settles a still-open canvas prompt as "cancel" during teardown. */
+  /** Cancels the confirmation/save flow and closes its dialog during teardown. */
   cancelPendingCanvasDecision: () => void;
   onSaveStateChange?: RoomSessionOptions["onSaveStateChange"];
   onSourceScene?: (sceneId: string | null) => void;
@@ -453,9 +453,8 @@ export function createCollaborationRoomController(
     // Ends any rate-limit wait immediately; the loop then sees `cancelled`
     // and returns without another join.
     releaseJoinWait?.();
-    // A teardown while the user was still deciding must not strand the
-    // scene-change dialog: nothing else would resolve the pending promise or
-    // close it. Resolving as "cancel" keeps their canvas untouched.
+    // End the confirmation/save flow and reset its dialog. An upload that
+    // finishes after teardown must not prepare the canvas or resume this join.
     deps.cancelPendingCanvasDecision();
     deps.onHandleChange(null);
     // The leave flush outlives this teardown by design; React cannot await it.

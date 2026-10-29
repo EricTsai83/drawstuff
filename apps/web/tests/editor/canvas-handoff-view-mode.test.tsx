@@ -4,6 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
+vi.mock("@/hooks/use-app-i18n", () => ({
+  useAppI18n: () => ({ t: (key: string) => key }),
+}));
 vi.mock("@/hooks/scene-session-context", () => ({
   useSceneSession: () => ({
     suppressDirtyTracking: vi.fn(),
@@ -46,8 +49,8 @@ function Probe() {
     excalidrawAPI: api,
     hasLocalContent: () => false,
     requestSceneChangeDecision: async () => "switch",
-    resolveSceneChangeDecision: vi.fn(),
-    closeSceneChangeConfirm: vi.fn(),
+    cancelSceneChangeDialog: vi.fn(),
+    setSceneChangeLoading: vi.fn(),
     uploadSceneToCloud: async () => true,
     cancelPendingSceneSave: vi.fn(),
   });

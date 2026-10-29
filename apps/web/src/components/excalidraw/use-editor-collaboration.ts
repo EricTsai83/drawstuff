@@ -36,8 +36,8 @@ export function useEditorCollaboration(options: {
   sceneChangeConfirm: Pick<
     UseSceneChangeConfirm,
     | "requestSceneChangeDecision"
-    | "resolveSceneChangeDecision"
-    | "closeSceneChangeDialog"
+    | "cancelSceneChangeDialog"
+    | "setSceneChangeDialogLoading"
   >;
   handleSceneChange: UseScenePersistenceResult["handleSceneChange"];
   cancelPendingSceneSave: UseScenePersistenceResult["cancelPendingSceneSave"];
@@ -76,8 +76,8 @@ export function useEditorCollaboration(options: {
       excalidrawAPI,
       hasLocalContent: hasCurrentCanvasContent,
       requestSceneChangeDecision: sceneChangeConfirm.requestSceneChangeDecision,
-      resolveSceneChangeDecision: sceneChangeConfirm.resolveSceneChangeDecision,
-      closeSceneChangeConfirm: sceneChangeConfirm.closeSceneChangeDialog,
+      cancelSceneChangeDialog: sceneChangeConfirm.cancelSceneChangeDialog,
+      setSceneChangeLoading: sceneChangeConfirm.setSceneChangeDialogLoading,
       uploadSceneToCloud,
       cancelPendingSceneSave,
     });

@@ -3,6 +3,8 @@
 export const en = {
   "toast.scene.loadCancelledByEdit":
     "Scene loading stopped because the canvas changed. Your edits were kept.",
+  "collaboration.saveStillInProgress":
+    "A previous save is still in progress. Please try again shortly.",
   "storage.localSaveFailed":
     "Local saving failed. Your latest changes may be lost if you reload or close this page. Download a local copy to keep them.",
   "storage.detachedDraft": "Unsaved · not in “{name}”",

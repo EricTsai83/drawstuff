@@ -12,6 +12,7 @@ export type UseSceneChangeConfirm = {
   resolveSceneChangeDecision: (choice: SceneChangeDecision) => void;
   setSceneChangeDialogLoading: (loading: boolean) => void;
   closeSceneChangeDialog: () => void;
+  cancelSceneChangeDialog: () => void;
 };
 
 /**
@@ -62,6 +63,14 @@ export function useSceneChangeConfirm(): UseSceneChangeConfirm {
     setIsSceneChangeDialogLoading(loading);
   }, []);
 
+  // Teardown owns the flow and must also be able to cancel an in-flight save.
+  const cancelSceneChangeDialog = useCallback(() => {
+    resolverRef.current?.("cancel");
+    resolverRef.current = null;
+    setIsSceneChangeDialogLoading(false);
+    setIsSceneChangeDialogOpen(false);
+  }, []);
+
   const closeSceneChangeDialog = useCallback(() => {
     if (isSceneChangeDialogLoading) return; // 載入中仍不可關閉
     // Another flow (conflict resolution or save-as) may take over the dialog.
@@ -78,5 +87,6 @@ export function useSceneChangeConfirm(): UseSceneChangeConfirm {
     resolveSceneChangeDecision,
     setSceneChangeDialogLoading,
     closeSceneChangeDialog,
+    cancelSceneChangeDialog,
   } as const;
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
@@ -25,9 +27,9 @@ export function useCanvasHandoff(options: {
   hasLocalContent: () => boolean;
   /** The editor's existing three-way prompt for replacing the canvas. */
   requestSceneChangeDecision: () => Promise<"save" | "switch" | "cancel">;
-  /** Settles a pending decision from outside the dialog; see cancel below. */
-  resolveSceneChangeDecision: (choice: "save" | "switch" | "cancel") => void;
-  closeSceneChangeConfirm: () => void;
+  /** Ends this flow even while its save is in flight. */
+  cancelSceneChangeDialog: () => void;
+  setSceneChangeLoading: (loading: boolean) => void;
   /** Saves the current canvas to the cloud; false means the save failed. */
   uploadSceneToCloud: (opts?: {
     suppressSuccessToast?: boolean;
@@ -43,13 +45,13 @@ export function useCanvasHandoff(options: {
     onDecisionPrompt: () => void;
   }) => Promise<CanvasHandoffOutcome>;
   /**
-   * Resolves a still-open prompt as "cancel" and closes it. For the caller's
-   * teardown: a join torn down while the user was still deciding must not
-   * strand the dialog — nothing else would resolve the pending promise or
-   * close it, and "cancel" is the answer that keeps their canvas untouched.
+   * Cancels the confirmation/save flow, clears loading and closes its dialog.
+   * An upload already in flight may finish, but cannot prepare the canvas or
+   * continue this join after teardown.
    */
   cancelPendingCanvasDecision: () => void;
 } {
+  const { t } = useAppI18n();
   const {
     suppressDirtyTracking,
     resumeDirtyTracking,
@@ -63,8 +65,8 @@ export function useCanvasHandoff(options: {
     optionsRef.current = options;
   });
 
-  /** True while the three-way prompt is awaiting the user's decision. */
-  const pendingDecisionRef = useRef(false);
+  const saveInFlightRef = useRef(false);
+  const activeHandoffRef = useRef<{ cancelled: boolean } | null>(null);
 
   const prepareCanvasForRoom = useCallback(
     async (params: {
@@ -73,6 +75,7 @@ export function useCanvasHandoff(options: {
       skipPrompt?: boolean;
       onDecisionPrompt: () => void;
     }): Promise<CanvasHandoffOutcome> => {
+      if (params.isCancelled()) return "torn-down";
       const editor = optionsRef.current;
       if (
         !params.keepCanvas &&
@@ -80,26 +83,52 @@ export function useCanvasHandoff(options: {
         editor.hasLocalContent()
       ) {
         params.onDecisionPrompt();
-        pendingDecisionRef.current = true;
-        let decision: "save" | "switch" | "cancel";
+        if (activeHandoffRef.current) {
+          activeHandoffRef.current.cancelled = true;
+          optionsRef.current.cancelSceneChangeDialog();
+        }
+        const attempt = { cancelled: false };
+        activeHandoffRef.current = attempt;
+        const isCancelled = () => params.isCancelled() || attempt.cancelled;
         try {
-          decision = await editor.requestSceneChangeDecision();
+          while (true) {
+            const decision =
+              await optionsRef.current.requestSceneChangeDecision();
+            if (isCancelled()) return "torn-down";
+            if (decision === "cancel") return "declined";
+            if (decision === "switch") break;
+            if (saveInFlightRef.current) {
+              toast.info(t("collaboration.saveStillInProgress"));
+              continue;
+            }
+            saveInFlightRef.current = true;
+            optionsRef.current.setSceneChangeLoading(true);
+            let saved = false;
+            try {
+              saved = await optionsRef.current.uploadSceneToCloud({
+                suppressSuccessToast: true,
+              });
+            } catch (error) {
+              console.error("Failed to save before joining the room:", error);
+            } finally {
+              saveInFlightRef.current = false;
+              if (activeHandoffRef.current === attempt)
+                optionsRef.current.setSceneChangeLoading(false);
+            }
+            if (isCancelled()) return "torn-down";
+            if (saved) break;
+            // The previous choice was consumed; keep the same join waiting
+            // for a retry, discard or cancel rather than abandoning the dialog.
+          }
         } finally {
-          pendingDecisionRef.current = false;
+          if (activeHandoffRef.current === attempt) {
+            activeHandoffRef.current = null;
+            optionsRef.current.cancelSceneChangeDialog();
+          }
         }
-        if (params.isCancelled()) return "torn-down";
-        if (decision === "cancel") return "declined";
-        if (decision === "save") {
-          const saved = await optionsRef.current.uploadSceneToCloud({
-            suppressSuccessToast: true,
-          });
-          if (params.isCancelled()) return "torn-down";
-          if (!saved) return "save-failed";
-        }
-        optionsRef.current.closeSceneChangeConfirm();
       }
       const current = optionsRef.current;
-      if (!current.excalidrawAPI) return "torn-down";
+      if (params.isCancelled() || !current.excalidrawAPI) return "torn-down";
       // Remote-owned content is about to replace the canvas; the clear itself
       // must not mark the scene dirty.
       suppressDirtyTracking();
@@ -124,15 +153,21 @@ export function useCanvasHandoff(options: {
       }
       return "prepared";
     },
-    [suppressDirtyTracking, resumeDirtyTracking, getCurrentSceneIdentity],
+    [suppressDirtyTracking, resumeDirtyTracking, getCurrentSceneIdentity, t],
   );
 
   const cancelPendingCanvasDecision = useCallback(() => {
-    if (!pendingDecisionRef.current) return;
-    pendingDecisionRef.current = false;
-    optionsRef.current.resolveSceneChangeDecision("cancel");
-    optionsRef.current.closeSceneChangeConfirm();
+    const attempt = activeHandoffRef.current;
+    if (!attempt) return;
+    attempt.cancelled = true;
+    activeHandoffRef.current = null;
+    optionsRef.current.cancelSceneChangeDialog();
   }, []);
+
+  useEffect(
+    () => () => cancelPendingCanvasDecision(),
+    [cancelPendingCanvasDecision],
+  );
 
   return { prepareCanvasForRoom, cancelPendingCanvasDecision };
 }
