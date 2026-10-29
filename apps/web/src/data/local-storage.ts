@@ -10,9 +10,14 @@ import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 // SSR/Node 環境保護：只有在瀏覽器且存在 localStorage 才進行存取
 function canUseLocalStorage(): boolean {
-  return (
-    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
-  );
+  try {
+    return (
+      typeof window !== "undefined" &&
+      typeof window.localStorage !== "undefined"
+    );
+  } catch {
+    return false;
+  }
 }
 
 const SCENE_SESSION_STORAGE_KEYS = [

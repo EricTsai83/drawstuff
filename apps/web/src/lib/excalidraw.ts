@@ -1,3 +1,4 @@
+import { setLocalSceneSaveFailed } from "@/data/local-scene-save-status";
 import type {
   AppState,
   BinaryFiles,
@@ -322,10 +323,12 @@ export function saveToLocalStorage(
       localStorage.setItem(key, value);
       written += 1;
     }
+    setLocalSceneSaveFailed(false);
     dispatchLocalSceneSaved();
     return true;
   } catch (error) {
     if (previous) restoreStorageKeys(previous.slice(0, written));
+    setLocalSceneSaveFailed(true);
     console.error("Failed to save the scene to localStorage:", error);
     return false;
   }

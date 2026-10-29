@@ -57,6 +57,7 @@ import type { CanvasProductActions } from "./canvas-product-actions";
 import { useEditorCollaboration } from "./use-editor-collaboration";
 import { useEditorPersistence } from "./use-editor-persistence";
 import { useEditorSceneLoading } from "./use-editor-scene-loading";
+import { LocalSceneSaveWarning } from "./local-scene-save-warning";
 import "./excalidraw-editor.module.css";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
@@ -402,6 +403,7 @@ export default function ExcalidrawEditor() {
 
   return (
     <div className="flex h-dvh w-full flex-col">
+      {!isRoomMode && <LocalSceneSaveWarning />}
       <div className="min-h-0 flex-1">
         {initialDataPromise && (
           <ExcalidrawCanvas
