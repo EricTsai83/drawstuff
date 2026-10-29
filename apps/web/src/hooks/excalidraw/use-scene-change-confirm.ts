@@ -64,6 +64,9 @@ export function useSceneChangeConfirm(): UseSceneChangeConfirm {
 
   const closeSceneChangeDialog = useCallback(() => {
     if (isSceneChangeDialogLoading) return; // 載入中仍不可關閉
+    // Another flow (conflict resolution or save-as) may take over the dialog.
+    resolverRef.current?.("cancel");
+    resolverRef.current = null;
     setIsSceneChangeDialogOpen(false);
   }, [isSceneChangeDialogLoading]);
 

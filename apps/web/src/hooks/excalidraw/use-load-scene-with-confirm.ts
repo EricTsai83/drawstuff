@@ -49,30 +49,28 @@ export function useLoadSceneWithConfirm({
           return;
         }
         if (hasCurrentContent()) {
-          const choice = await requestSceneChangeDecision();
-          if (choice === "cancel") return;
-          if (choice === "save") {
-            setSceneChangeLoading?.(true);
-            let saveOk = false;
-            try {
-              // 不傳 workspaceId — useCloudUpload 會從 session 取得當前場景的 workspace
-              saveOk = await uploadSceneToCloud({
-                suppressSuccessToast: true,
-              });
-            } catch {
-              // 與 !ok 相同：未成功寫入雲端前不可切場景（避免違反「先存再換」）
-              saveOk = false;
-            } finally {
-              setSceneChangeLoading?.(false);
-            }
-            if (!saveOk) {
-              // 保持對話框開啟，讓使用者可重試或改選「不存就換」
-              return;
+          // A failed save consumes the previous decision; re-arm the same
+          // dialog before accepting a retry, discard or cancel.
+          while (true) {
+            const choice = await requestSceneChangeDecision();
+            if (choice === "cancel") return;
+            if (choice === "save") {
+              setSceneChangeLoading?.(true);
+              let saveOk = false;
+              try {
+                // Save the current scene in its own workspace, not the target's.
+                saveOk = await uploadSceneToCloud({
+                  suppressSuccessToast: true,
+                });
+              } catch {
+                // Keep the canvas intact and let the user choose again.
+              } finally {
+                setSceneChangeLoading?.(false);
+              }
+              if (!saveOk) continue;
             }
             closeSceneChangeConfirm?.();
-          } else if (choice === "switch") {
-            // 直接覆蓋，先關閉對話框
-            closeSceneChangeConfirm?.();
+            break;
           }
         }
 

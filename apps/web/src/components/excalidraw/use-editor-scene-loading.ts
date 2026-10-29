@@ -152,9 +152,9 @@ export function useEditorSceneLoading(options: {
 
   const { closeSceneChangeDialog } = sceneChangeConfirm;
   useEffect(() => {
-    if (!lastConflict) return;
+    if (!lastConflict && !isCloudUploadDialogOpen) return;
     closeSceneChangeDialog();
-  }, [lastConflict, closeSceneChangeDialog]);
+  }, [lastConflict, isCloudUploadDialogOpen, closeSceneChangeDialog]);
 
   useEffect(() => {
     // 同步 Excalidraw appState.theme 與目前主題，避免載入/初始狀態殘留舊主題
