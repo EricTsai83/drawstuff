@@ -21,6 +21,10 @@ import {
   isLocalScenePersistencePaused,
 } from "@/data/local-scene-persistence";
 import { clearLocalSceneContent } from "@/data/local-storage";
+import {
+  captureSceneContent,
+  hasSceneContentChanged,
+} from "@/lib/scene-content";
 import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 export type ApplyRemoteSceneParams = {
@@ -97,7 +101,10 @@ export function useApplyRemoteScene(
       pendingRef.current = request;
       const canvasGeneration = getCanvasGeneration();
       const persistenceGeneration = getLocalScenePersistenceGeneration();
-      const initialContent = captureContent(excalidrawAPI);
+      const initialContent = captureSceneContent({
+        elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+        appState: excalidrawAPI.getAppState(),
+      });
       const isSuperseded = () =>
         request.controller.signal.aborted ||
         pendingRef.current !== request ||
@@ -131,7 +138,13 @@ export function useApplyRemoteScene(
       // canvas, cache, identity, centering or caller notifications.
       if (isSuperseded()) return finish({ ok: false, reason: "superseded" });
       if (
-        hasContentChanged(excalidrawAPI, initialContent) ||
+        hasSceneContentChanged(
+          {
+            elements: excalidrawAPI.getSceneElementsIncludingDeleted(),
+            appState: excalidrawAPI.getAppState(),
+          },
+          initialContent,
+        ) ||
         (background && getCurrentSceneIdentity().isDirty)
       )
         return finish({ ok: false, reason: "canvas_changed" });
@@ -279,44 +292,4 @@ function queueCenterToContent(
     if (timerId !== undefined) window.clearTimeout(timerId);
     timerId = undefined;
   };
-}
-
-/** Compare scene content only at the two async boundaries, never on each frame.
- * Selection, panning and opening sidebars do not invalidate a pending load. */
-function captureContent(api: ExcalidrawImperativeAPI) {
-  const state = api.getAppState();
-  return {
-    elements: api.getSceneElementsIncludingDeleted().map((element) => ({
-      id: element.id,
-      version: element.version,
-      versionNonce: element.versionNonce,
-      isDeleted: element.isDeleted,
-    })),
-    name: state.name,
-    viewBackgroundColor: state.viewBackgroundColor,
-    gridSize: state.gridSize,
-  };
-}
-
-function hasContentChanged(
-  api: ExcalidrawImperativeAPI,
-  snapshot: ReturnType<typeof captureContent>,
-): boolean {
-  const elements = api.getSceneElementsIncludingDeleted();
-  const state = api.getAppState();
-  return (
-    state.name !== snapshot.name ||
-    state.viewBackgroundColor !== snapshot.viewBackgroundColor ||
-    state.gridSize !== snapshot.gridSize ||
-    elements.length !== snapshot.elements.length ||
-    elements.some((element, index) => {
-      const previous = snapshot.elements[index]!;
-      return (
-        element.id !== previous.id ||
-        element.version !== previous.version ||
-        element.versionNonce !== previous.versionNonce ||
-        element.isDeleted !== previous.isDeleted
-      );
-    })
-  );
 }
