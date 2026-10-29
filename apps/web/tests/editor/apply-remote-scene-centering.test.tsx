@@ -16,6 +16,8 @@ const { importSceneData, importSceneFiles, saveToLocalStorage, session } =
       suppressDirtyTracking: vi.fn(),
       resumeDirtyTracking: vi.fn(),
       syncCurrentScene: vi.fn(),
+      getCanvasGeneration: vi.fn(() => 0),
+      getCurrentSceneIdentity: vi.fn(() => ({ isDirty: false })),
     },
   }));
 
@@ -56,9 +58,10 @@ function Probe({ api }: { api: ExcalidrawImperativeAPI | null }) {
 function createApiStub() {
   const scene = { elements: [] as readonly ExcalidrawElement[] };
   const api = {
-    getAppState: () => ({ theme: "light" }),
+    getAppState: vi.fn(() => ({ theme: "light" })),
     updateScene: vi.fn(),
     getSceneElements: vi.fn(() => scene.elements),
+    getSceneElementsIncludingDeleted: vi.fn(() => scene.elements),
     scrollToContent: vi.fn(),
     getFiles: () => ({}),
     addFiles: vi.fn(),
@@ -289,4 +292,120 @@ describe("useApplyRemoteScene local cache", () => {
       "previous",
     );
   });
+});
+
+function deferredScene() {
+  let resolve!: (value: { elements: never[]; revision: number }) => void;
+  const promise = new Promise<{ elements: never[]; revision: number }>(
+    (done) => {
+      resolve = done;
+    },
+  );
+  return { promise, resolve };
+}
+
+describe("remote load validity", () => {
+  it("ignores a late A response after B has loaded, even if cancellation is ignored", async () => {
+    const { api, spies } = createApiStub();
+    const hook = mount(api);
+    const a = deferredScene();
+    importSceneData.mockImplementation((id: string) =>
+      id === "A" ? a.promise : Promise.resolve({ elements: [], revision: 2 }),
+    );
+    const first = hook.applyRemoteScene({ sceneId: "A" });
+    const signal = importSceneData.mock.calls[0]![1] as AbortSignal;
+    await hook.applyRemoteScene({ sceneId: "B" });
+    expect(signal.aborted).toBe(true);
+    a.resolve({ elements: [], revision: 1 });
+    expect(await first).toEqual({ ok: false, reason: "superseded" });
+    expect(spies.updateScene).toHaveBeenCalledTimes(1);
+    expect(saveToLocalStorage).toHaveBeenCalledTimes(1);
+    expect(session.syncCurrentScene).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: "B" }),
+    );
+  });
+
+  it("invalidates a load when the canvas session is cleared, including an empty new canvas", async () => {
+    const { api, spies } = createApiStub();
+    const hook = mount(api);
+    const a = deferredScene();
+    importSceneData.mockReturnValue(a.promise);
+    const loading = hook.applyRemoteScene({ sceneId: "A" });
+    session.getCanvasGeneration.mockReturnValueOnce(1);
+    a.resolve({ elements: [], revision: 1 });
+    expect(await loading).toEqual({ ok: false, reason: "superseded" });
+    expect(spies.updateScene).not.toHaveBeenCalled();
+    expect(saveToLocalStorage).not.toHaveBeenCalled();
+  });
+
+  it("keeps edits made during loading", async () => {
+    const { api, spies, showContent } = createApiStub();
+    const hook = mount(api);
+    const a = deferredScene();
+    importSceneData.mockReturnValue(a.promise);
+    const loading = hook.applyRemoteScene({ sceneId: "A" });
+    showContent();
+    a.resolve({ elements: [], revision: 1 });
+    expect(await loading).toEqual({ ok: false, reason: "canvas_changed" });
+    expect(spies.updateScene).not.toHaveBeenCalled();
+    expect(session.syncCurrentScene).not.toHaveBeenCalled();
+  });
+
+  it("does not let a background refresh supersede an explicit load", async () => {
+    const { api } = createApiStub();
+    const hook = mount(api);
+    const a = deferredScene();
+    importSceneData.mockReturnValue(a.promise);
+    const loading = hook.applyRemoteScene({ sceneId: "B" });
+    expect(
+      await hook.applyRemoteScene({ sceneId: "A", background: true }),
+    ).toEqual({ ok: false, reason: "superseded" });
+    expect(importSceneData).toHaveBeenCalledTimes(1);
+    a.resolve({ elements: [], revision: 1 });
+    expect((await loading).ok).toBe(true);
+  });
+
+  it("aborts pending work on unmount and never writes its result", async () => {
+    const { api, spies } = createApiStub();
+    const hook = mount(api);
+    const a = deferredScene();
+    importSceneData.mockReturnValue(a.promise);
+    const loading = hook.applyRemoteScene({ sceneId: "A" });
+    const signal = importSceneData.mock.calls[0]![1] as AbortSignal;
+    act(() => root.render(null));
+    expect(signal.aborted).toBe(true);
+    a.resolve({ elements: [], revision: 1 });
+    expect(await loading).toEqual({ ok: false, reason: "superseded" });
+    expect(spies.updateScene).not.toHaveBeenCalled();
+  });
+});
+
+it("allows viewport and sidebar changes while a scene is loading", async () => {
+  const { api, spies } = createApiStub();
+  const hook = mount(api);
+  const a = deferredScene();
+  importSceneData.mockReturnValue(a.promise);
+  const loading = hook.applyRemoteScene({ sceneId: "A" });
+  spies.getAppState.mockImplementation(() => ({
+    theme: "light",
+    scrollX: 100,
+    scrollY: 200,
+    openSidebar: { name: "default" },
+  }));
+  a.resolve({ elements: [], revision: 1 });
+  expect((await loading).ok).toBe(true);
+  expect(spies.updateScene).toHaveBeenCalledTimes(1);
+});
+
+it("detects in-place element version changes during a load", async () => {
+  const { api, spies, showContent } = createApiStub();
+  showContent();
+  const hook = mount(api);
+  const a = deferredScene();
+  importSceneData.mockReturnValue(a.promise);
+  const loading = hook.applyRemoteScene({ sceneId: "A" });
+  Object.assign(spies.getSceneElements()[0]!, { version: 2 });
+  a.resolve({ elements: [], revision: 1 });
+  expect(await loading).toEqual({ ok: false, reason: "canvas_changed" });
+  expect(spies.updateScene).not.toHaveBeenCalled();
 });

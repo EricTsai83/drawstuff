@@ -1,5 +1,7 @@
 "use client";
 
+import type { ApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
+
 import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,13 +18,7 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 // ---------------------------------------------------------------------------
 
 type UseSceneRemoteRevisionCheckParams = {
-  applyRemoteScene: (params: {
-    sceneId: string;
-    getActiveTheme?: () => "dark" | "light";
-  }) => Promise<
-    | { ok: true; revision?: number }
-    | { ok: false; reason: "scene_data_missing" | "incomplete_files" }
-  >;
+  applyRemoteScene: ApplyRemoteScene;
   uploadSceneToCloud: (opts?: {
     workspaceId?: string;
     suppressSuccessToast?: boolean;
@@ -161,6 +157,7 @@ export function useSceneRemoteRevisionCheck({
         const result = await applyRemoteScene({
           sceneId: capturedSceneId,
           getActiveTheme,
+          background: true,
         });
 
         // Guard: bail if scene changed during apply
@@ -218,6 +215,14 @@ export function useSceneRemoteRevisionCheck({
             sceneId: pendingConflict.sceneId,
             getActiveTheme,
           });
+          if (!result.ok && result.reason === "superseded") {
+            clearConflict();
+            return;
+          }
+          if (!result.ok && result.reason === "canvas_changed") {
+            toast.info(t("toast.scene.loadCancelledByEdit"));
+            return;
+          }
           const applied = isApplyResultAcceptable(result);
           if (applied) {
             ignoredConflictKeyRef.current = undefined;

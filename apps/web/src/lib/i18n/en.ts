@@ -1,6 +1,8 @@
 // 應用層英文字典：所有 app 翻譯 key 的唯一來源，AppTranslationKey 由此推導。
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
+  "toast.scene.loadCancelledByEdit":
+    "Scene loading stopped because the canvas changed. Your edits were kept.",
   "storage.localSaveFailed":
     "Local saving failed. Your latest changes may be lost if you reload or close this page. Download a local copy to keep them.",
   "storage.detachedDraft": "Unsaved · not in “{name}”",

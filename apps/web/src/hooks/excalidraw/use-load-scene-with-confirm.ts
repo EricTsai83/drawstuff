@@ -1,5 +1,7 @@
 "use client";
 
+import type { ApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
+
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
@@ -21,13 +23,7 @@ export type UseLoadSceneWithConfirmParams = {
   }) => Promise<boolean>;
   setLastActive?: (workspaceId: string) => Promise<void>;
   invalidate?: () => Promise<void>;
-  applyRemoteScene: (params: {
-    sceneId: string;
-    getActiveTheme?: () => "dark" | "light";
-  }) => Promise<
-    | { ok: true; revision?: number }
-    | { ok: false; reason: "scene_data_missing" | "incomplete_files" }
-  >;
+  applyRemoteScene: ApplyRemoteScene;
   // 擷取目前啟用的主題（避免載入場景時套用舊主題）
   getActiveTheme?: () => "dark" | "light";
 };
@@ -84,6 +80,11 @@ export function useLoadSceneWithConfirm({
           sceneId,
           getActiveTheme,
         });
+        if (!applyResult.ok && applyResult.reason === "superseded") return;
+        if (!applyResult.ok && applyResult.reason === "canvas_changed") {
+          toast.info(t("toast.scene.loadCancelledByEdit"));
+          return;
+        }
         // "incomplete_files" means the canvas was updated (elements visible)
         // but some image assets are missing — not a blocking failure.
         if (!applyResult.ok && applyResult.reason === "scene_data_missing") {

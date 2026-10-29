@@ -2,6 +2,8 @@ import type { AppDictionary } from "./types";
 
 // 應用層繁體中文字典；satisfies 讓缺 key 或多 key 直接編譯失敗。
 export const zhTW = {
+  "toast.scene.loadCancelledByEdit":
+    "畫布已有變更，已停止載入場景並保留你的修改。",
   "storage.localSaveFailed":
     "本機儲存失敗，重新整理或關閉頁面可能遺失最新修改。請下載本機副本以保留內容。",
   "storage.detachedDraft": "未儲存 · 不在「{name}」中",

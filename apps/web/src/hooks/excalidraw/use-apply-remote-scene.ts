@@ -16,19 +16,30 @@ import {
   importSceneFilesBySceneId,
 } from "@/lib/import-data-from-db";
 import { useSceneSession } from "@/hooks/scene-session-context";
-import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
+import {
+  getLocalScenePersistenceGeneration,
+  isLocalScenePersistencePaused,
+} from "@/data/local-scene-persistence";
 import { clearLocalSceneContent } from "@/data/local-storage";
 import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
-type ApplyRemoteSceneParams = {
+export type ApplyRemoteSceneParams = {
   sceneId: string;
   getActiveTheme?: () => "dark" | "light";
   shouldCenter?: boolean;
+  background?: boolean;
 };
 
-type ApplyRemoteSceneResult =
+export type ApplyRemoteSceneResult =
   | { ok: true; revision?: number }
-  | { ok: false; reason: "scene_data_missing" | "incomplete_files" };
+  | {
+      ok: false;
+      reason:
+        | "scene_data_missing"
+        | "incomplete_files"
+        | "superseded"
+        | "canvas_changed";
+    };
 
 /** The canvas was updated — true even when some image assets are still missing. */
 export function isApplyResultAcceptable(
@@ -37,45 +48,97 @@ export function isApplyResultAcceptable(
   return result.ok || result.reason === "incomplete_files";
 }
 
+export type ApplyRemoteScene = (
+  params: ApplyRemoteSceneParams,
+) => Promise<ApplyRemoteSceneResult>;
+
 export function useApplyRemoteScene(
   excalidrawAPI: ExcalidrawImperativeAPI | null,
 ) {
-  const { suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene } =
-    useSceneSession();
+  const {
+    suppressDirtyTracking,
+    resumeDirtyTracking,
+    syncCurrentScene,
+    getCanvasGeneration,
+    getCurrentSceneIdentity,
+  } = useSceneSession();
   /** Cancels the centering retries of the latest apply; a newer apply or an
    *  unmount must not let a stale chain scroll the canvas. */
   const cancelPendingCenterRef = useRef<(() => void) | undefined>(undefined);
-  useEffect(() => () => cancelPendingCenterRef.current?.(), []);
+  const pendingRef = useRef<{
+    controller: AbortController;
+    background: boolean;
+  } | null>(null);
+  useEffect(
+    () => () => {
+      pendingRef.current?.controller.abort();
+      pendingRef.current = null;
+      cancelPendingCenterRef.current?.();
+    },
+    [excalidrawAPI],
+  );
 
   const applyRemoteScene = useCallback(
     async ({
       sceneId,
       getActiveTheme,
       shouldCenter = true,
+      background = false,
     }: ApplyRemoteSceneParams): Promise<ApplyRemoteSceneResult> => {
       if (!excalidrawAPI || isLocalScenePersistencePaused()) {
         return { ok: false, reason: "scene_data_missing" };
       }
+
+      // Background refreshes must never supersede an explicit user load.
+      if (background && pendingRef.current && !pendingRef.current.background)
+        return { ok: false, reason: "superseded" };
+      pendingRef.current?.controller.abort();
+      const request = { controller: new AbortController(), background };
+      pendingRef.current = request;
+      const canvasGeneration = getCanvasGeneration();
+      const persistenceGeneration = getLocalScenePersistenceGeneration();
+      const initialContent = captureContent(excalidrawAPI);
+      const isSuperseded = () =>
+        request.controller.signal.aborted ||
+        pendingRef.current !== request ||
+        getCanvasGeneration() !== canvasGeneration ||
+        getLocalScenePersistenceGeneration() !== persistenceGeneration ||
+        isLocalScenePersistencePaused();
+      const finish = (
+        result: ApplyRemoteSceneResult,
+      ): ApplyRemoteSceneResult => {
+        if (pendingRef.current === request) pendingRef.current = null;
+        return result;
+      };
 
       // 1. Fetch scene data and files in parallel for faster perceived load
       let imported: Awaited<ReturnType<typeof importSceneDataBySceneId>>;
       let fetchedFiles: BinaryFiles;
       try {
         [imported, fetchedFiles] = await Promise.all([
-          importSceneDataBySceneId(sceneId),
-          importSceneFilesBySceneId(sceneId).catch((): BinaryFiles => ({})),
+          importSceneDataBySceneId(sceneId, request.controller.signal),
+          importSceneFilesBySceneId(sceneId, request.controller.signal).catch(
+            (): BinaryFiles => ({}),
+          ),
         ]);
       } catch (error) {
+        if (isSuperseded()) return finish({ ok: false, reason: "superseded" });
         console.error("Failed to import remote scene data:", error);
-        return { ok: false, reason: "scene_data_missing" };
+        return finish({ ok: false, reason: "scene_data_missing" });
       }
+
+      // No side effects before this check: stale replies cannot touch the
+      // canvas, cache, identity, centering or caller notifications.
+      if (isSuperseded()) return finish({ ok: false, reason: "superseded" });
+      if (
+        hasContentChanged(excalidrawAPI, initialContent) ||
+        (background && getCurrentSceneIdentity().isDirty)
+      )
+        return finish({ ok: false, reason: "canvas_changed" });
 
       if (!imported?.elements && !imported?.appState) {
-        return { ok: false, reason: "scene_data_missing" };
+        return finish({ ok: false, reason: "scene_data_missing" });
       }
-
-      if (isLocalScenePersistencePaused())
-        return { ok: false, reason: "scene_data_missing" };
 
       // 2. Prepare merged appState
       const baseAppState = excalidrawAPI.getAppState() as AppState | undefined;
@@ -167,6 +230,7 @@ export function useApplyRemoteScene(
         // Resume after one frame so Excalidraw's synchronous onChange events
         // (triggered by updateScene / addFiles) are still suppressed, but
         // subsequent user edits are tracked normally.
+        if (pendingRef.current === request) pendingRef.current = null;
         requestAnimationFrame(() => {
           resumeDirtyTracking();
         });
@@ -177,6 +241,8 @@ export function useApplyRemoteScene(
       suppressDirtyTracking,
       resumeDirtyTracking,
       syncCurrentScene,
+      getCanvasGeneration,
+      getCurrentSceneIdentity,
     ],
   );
 
@@ -213,4 +279,44 @@ function queueCenterToContent(
     if (timerId !== undefined) window.clearTimeout(timerId);
     timerId = undefined;
   };
+}
+
+/** Compare scene content only at the two async boundaries, never on each frame.
+ * Selection, panning and opening sidebars do not invalidate a pending load. */
+function captureContent(api: ExcalidrawImperativeAPI) {
+  const state = api.getAppState();
+  return {
+    elements: api.getSceneElementsIncludingDeleted().map((element) => ({
+      id: element.id,
+      version: element.version,
+      versionNonce: element.versionNonce,
+      isDeleted: element.isDeleted,
+    })),
+    name: state.name,
+    viewBackgroundColor: state.viewBackgroundColor,
+    gridSize: state.gridSize,
+  };
+}
+
+function hasContentChanged(
+  api: ExcalidrawImperativeAPI,
+  snapshot: ReturnType<typeof captureContent>,
+): boolean {
+  const elements = api.getSceneElementsIncludingDeleted();
+  const state = api.getAppState();
+  return (
+    state.name !== snapshot.name ||
+    state.viewBackgroundColor !== snapshot.viewBackgroundColor ||
+    state.gridSize !== snapshot.gridSize ||
+    elements.length !== snapshot.elements.length ||
+    elements.some((element, index) => {
+      const previous = snapshot.elements[index]!;
+      return (
+        element.id !== previous.id ||
+        element.version !== previous.version ||
+        element.versionNonce !== previous.versionNonce ||
+        element.isDeleted !== previous.isDeleted
+      );
+    })
+  );
 }
