@@ -89,16 +89,21 @@ async function getFileRecordsBySharedSceneId(
 
 async function getFileRecordsBySceneId(
   sceneId: string,
+  signal?: AbortSignal,
 ): Promise<CloudFileRecord[]> {
   try {
     const client = getTrpcClient();
 
-    const res = await client.scene.getFileRecordsBySceneId.query({
-      id: sceneId,
-    });
+    const res = await client.scene.getFileRecordsBySceneId.query(
+      {
+        id: sceneId,
+      },
+      { signal },
+    );
 
     return Array.isArray(res?.files) ? res.files : [];
   } catch (error: unknown) {
+    if (signal?.aborted) throw error;
     console.error("getFileRecordsBySceneId error", error);
     return [];
   }
@@ -107,6 +112,7 @@ async function getFileRecordsBySceneId(
 async function importSceneFilesFromRecords(
   records: CloudFileRecord[],
   decryptionKey: string,
+  signal?: AbortSignal,
 ): Promise<BinaryFiles> {
   if (records.length === 0) {
     return {};
@@ -115,7 +121,7 @@ async function importSceneFilesFromRecords(
   const decoder = new TextDecoder();
   const entries = await Promise.allSettled(
     records.map(async (record) => {
-      const response = await fetch(record.url);
+      const response = await fetch(record.url, { signal });
       if (!response.ok) {
         return null;
       }
@@ -127,6 +133,7 @@ async function importSceneFilesFromRecords(
           decryptionKey,
         },
       );
+      signal?.throwIfAborted();
       const dataURL = decoder.decode(data);
       if (!dataURL.startsWith("data:")) {
         return null;
@@ -168,11 +175,13 @@ async function importSceneFilesFromRecords(
 
 export async function importSceneFilesBySceneId(
   sceneId: string,
+  signal?: AbortSignal,
 ): Promise<BinaryFiles> {
   try {
-    const records = await getFileRecordsBySceneId(sceneId);
-    return importSceneFilesFromRecords(records, "");
+    const records = await getFileRecordsBySceneId(sceneId, signal);
+    return importSceneFilesFromRecords(records, "", signal);
   } catch (error: unknown) {
+    if (signal?.aborted) throw error;
     console.error("importSceneFilesBySceneId error", error);
     return {};
   }
@@ -210,10 +219,14 @@ function toUint8Array(input: unknown): Uint8Array {
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
 export async function importSceneDataBySceneId(
   sceneId: string,
+  signal?: AbortSignal,
 ): Promise<ImportedSceneData> {
   try {
     const client = getTrpcClient();
-    const result = await client.scene.getScene.query({ id: sceneId });
+    const result = await client.scene.getScene.query(
+      { id: sceneId },
+      { signal },
+    );
     const compressed = result?.sceneData;
     if (!compressed) {
       return {
@@ -227,6 +240,7 @@ export async function importSceneDataBySceneId(
       // 未加密情況下，此值不會被使用
       decryptionKey: "",
     });
+    signal?.throwIfAborted();
     const parsed = decodePersistedScene(data);
     const sanitizedAppState = parsed.appState;
     // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
@@ -242,6 +256,7 @@ export async function importSceneDataBySceneId(
       workspaceId: result?.workspaceId ?? undefined,
     };
   } catch (error: unknown) {
+    if (signal?.aborted) throw error;
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
